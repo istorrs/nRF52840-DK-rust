@@ -1,7 +1,7 @@
 # Makefile for nRF52840-DK Embassy Template
 # Provides convenient commands for building, flashing, and debugging
 
-.PHONY: all build flash debug clean setup help format check
+.PHONY: all build flash debug clean setup setup-probe-rs help format check
 
 # Default target
 all: build
@@ -41,11 +41,21 @@ setup:
 	@echo "⚙️  Setting up development environment..."
 	@echo "Installing Rust embedded toolchain..."
 	rustup target add thumbv7em-none-eabihf
-	@echo "Installing probe-rs..."
-	cargo install probe-rs --features cli
 	@echo "Installing flip-link..."
 	cargo install flip-link
-	@echo "✅ Setup complete!"
+	@echo ""
+	@echo "📋 Manual probe-rs installation required:"
+	@echo "   System dependencies needed for probe-rs:"
+	@echo "   sudo apt update && sudo apt install -y libudev-dev pkg-config"
+	@echo "   cargo install probe-rs-tools"
+	@echo ""
+	@echo "✅ Basic setup complete! Please install probe-rs manually."
+
+# Install probe-rs (run after installing system dependencies)
+setup-probe-rs:
+	@echo "🔧 Installing probe-rs..."
+	cargo install probe-rs-tools
+	@echo "✅ probe-rs installation complete!"
 
 # Format code
 format:
@@ -68,7 +78,8 @@ help:
 	@echo "  make flash-release - Build and flash release version"
 	@echo "  make debug         - Start debug session with RTT"
 	@echo "  make clean         - Clean build artifacts"
-	@echo "  make setup         - Install required tools"
+	@echo "  make setup         - Install required tools (basic)"
+	@echo "  make setup-probe-rs - Install probe-rs (after system deps)"
 	@echo "  make format        - Format source code"
 	@echo "  make check         - Check code formatting and lints"
 	@echo "  make help          - Show this help message"

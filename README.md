@@ -22,19 +22,23 @@ source ~/.cargo/env
 rustup target add thumbv7em-none-eabihf
 ```
 
-2. **Install probe-rs** (replaces OpenOCD):
+2. **Install system dependencies**:
 ```bash
-cargo install probe-rs --features cli
+sudo apt update
+sudo apt install -y build-essential libudev-dev pkg-config
 ```
 
-3. **Install additional tools**:
+3. **Install probe-rs** (replaces OpenOCD):
+```bash
+cargo install probe-rs-tools
+```
+
+4. **Install additional tools**:
 ```bash
 cargo install flip-link
-sudo apt update
-sudo apt install build-essential
 ```
 
-4. **Setup udev rules** for nRF52840-DK:
+5. **Setup udev rules** for nRF52840-DK:
 ```bash
 sudo tee /etc/udev/rules.d/69-probe-rs.rules > /dev/null <<'EOF'
 # nRF52840-DK
