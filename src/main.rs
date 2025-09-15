@@ -17,7 +17,7 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_nrf::init(Default::default());
 
-    info!("nRF52840 initialized without SoftDevice");
+    info!("nRF52840 initialized - GPIO mode (BLE disabled)");
 
     // Configure GPIO pins for nRF52840-DK
     // LEDs: P0.13, P0.14, P0.15, P0.16 (active low)
@@ -41,7 +41,7 @@ async fn main(spawner: Spawner) {
 
     // Main loop - can be used for other tasks or just sleep
     loop {
-        info!("Main loop iteration - system running");
-        Timer::after(Duration::from_secs(10)).await;
+        info!("Main loop iteration - GPIO system running");
+        Timer::after(Duration::from_secs(15)).await;
     }
 }

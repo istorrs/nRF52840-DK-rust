@@ -1,15 +1,15 @@
 # nRF52840-DK Embassy Template
 
-A best-in-class Rust project template for the nRF52840-DK development board featuring Embassy async framework, GPIO control, and Bluetooth Low Energy (BLE) connectivity.
+A best-in-class Rust project template for the nRF52840-DK development board featuring Embassy async framework and comprehensive GPIO control. BLE functionality available separately (see docs/ble-integration.md).
 
 ## 🚀 Features
 
 - **Embassy Async Framework**: Modern async/await embedded programming
-- **GPIO Control**: LED patterns, button handling with debouncing
-- **BLE Connectivity**: GATT server for phone data collection
+- **GPIO Control**: LED patterns, button handling with responsive polling
 - **Power Efficient**: Automatic low-power mode when idle  
 - **Easy Debugging**: VS Code integration with RTT logging
 - **One-Command Flashing**: Simple build and deploy workflow
+- **BLE Ready**: Complete BLE implementation available (see docs/ble-integration.md)
 
 ## 📋 Prerequisites
 
@@ -57,20 +57,12 @@ sudo udevadm trigger
 make setup
 ```
 
-4. **Flash SoftDevice S140** (required for BLE functionality):
-```bash
-# Download SoftDevice S140 v7.3.0 from Nordic Semiconductor
-# Flash it to the board (only needed once)
-probe-rs erase --chip nRF52840_xxAA
-probe-rs download --verify --binary-format hex --chip nRF52840_xxAA s140_nrf52_7.3.0_softdevice.hex
-```
-
-5. **Build and flash the application**:
+4. **Build and flash the application**:
 ```bash
 make flash
 ```
 
-6. **Start debugging with RTT logs**:
+5. **Start debugging with RTT logs**:
 ```bash
 make debug
 ```

@@ -1,7 +1,7 @@
 # Makefile for nRF52840-DK Embassy Template
 # Provides convenient commands for building, flashing, and debugging
 
-.PHONY: all build flash debug clean setup setup-probe-rs help format check
+.PHONY: all build flash debug clean setup setup-probe-rs setup-ble help format check
 
 # Default target
 all: build
@@ -66,6 +66,12 @@ setup-probe-rs:
 	cargo install probe-rs-tools
 	@echo "✅ probe-rs installation complete!"
 
+# Setup BLE functionality (flash SoftDevice S140)
+setup-ble:
+	@echo "🔧 Setting up BLE functionality..."
+	@echo "This will download and flash SoftDevice S140 v7.3.0"
+	./scripts/flash-softdevice.sh
+
 # Format code
 format:
 	@echo "🎨 Formatting code..."
@@ -89,6 +95,7 @@ help:
 	@echo "  make clean         - Clean build artifacts"
 	@echo "  make setup         - Install required tools (basic)"
 	@echo "  make setup-probe-rs - Install probe-rs (after system deps)"
+	@echo "  make setup-ble     - Setup BLE (flash SoftDevice S140)"
 	@echo "  make format        - Format source code"
 	@echo "  make check         - Check code formatting and lints"
 	@echo "  make help          - Show this help message"

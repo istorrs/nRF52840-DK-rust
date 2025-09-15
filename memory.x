@@ -1,4 +1,4 @@
-/* Memory layout for nRF52840 - No SoftDevice (for testing) */
+/* Memory layout for nRF52840 - No SoftDevice (GPIO-only mode) */
 
 MEMORY
 {
