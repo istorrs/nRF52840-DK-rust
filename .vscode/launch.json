@@ -4,23 +4,25 @@
         {
             "type": "probe-rs-debug",
             "request": "launch",
-            "name": "Debug nRF52840-DK",
+            "name": "Debug nRF52840-DK (probe-rs)",
             "cwd": "${workspaceFolder}",
             "chip": "nRF52840_xxAA",
             "flashingConfig": {
                 "flashingEnabled": true,
                 "resetAfterFlashing": true,
-                "haltAfterReset": true
+                "haltAfterReset": false,
+                "fullChipErase": false
             },
-            "runtimeArgs": [
-                "--chip",
-                "nRF52840_xxAA"
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/nrf52840-dk-template"
+                }
             ],
             "connectUnderReset": false,
-            "speed": 4000,
             "rttConfig": {
                 "enabled": true,
-                "timeout": 5000,
+                "timeout": 3000,
                 "showTimestamps": true,
                 "logLevel": "Debug",
                 "channels": [
@@ -31,34 +33,81 @@
                         "showOnStartup": true
                     }
                 ]
-            },
-            "consoleLogLevel": "Debug",
-            "wireProtocol": "Swd"
+            }
         },
         {
-            "type": "probe-rs-debug",
-            "request": "attach",
-            "name": "Attach to nRF52840-DK",
+            "type": "cortex-debug",
+            "request": "launch",
+            "name": "Debug nRF52840-DK (Cortex-Debug + OpenOCD)",
             "cwd": "${workspaceFolder}",
-            "chip": "nRF52840_xxAA",
-            "connectUnderReset": false,
-            "speed": 4000,
-            "rttConfig": {
-                "enabled": true,
-                "timeout": 5000,
-                "showTimestamps": true,
-                "logLevel": "Debug",
-                "channels": [
-                    {
-                        "channelNumber": 0,
-                        "channelName": "defmt",
-                        "format": "Defmt",
-                        "showOnStartup": true
-                    }
-                ]
-            },
-            "consoleLogLevel": "Debug",
-            "wireProtocol": "Swd"
+            "executable": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/nrf52840-dk-template",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/nrf52.cfg"
+            ],
+            "searchDir": [],
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "raw",
+            "device": "nRF52840_xxAA",
+            "svdFile": "${workspaceFolder}/.vscode/nrf52840.svd"
+        },
+        {
+            "type": "cortex-debug",
+            "request": "attach",
+            "name": "Attach to nRF52840-DK (Cortex-Debug + OpenOCD)",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/nrf52840-dk-template",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/nrf52.cfg"
+            ],
+            "searchDir": [],
+            "showDevDebugOutput": "raw",
+            "device": "nRF52840_xxAA"
+        },
+        {
+            "type": "cortex-debug",
+            "request": "launch",
+            "name": "Debug nRF52840-DK (Cortex-Debug + J-Link)",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/nrf52840-dk-template",
+            "servertype": "jlink",
+            "device": "nRF52840_xxAA",
+            "interface": "swd",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "raw"
+        },
+        {
+            "type": "gdb",
+            "request": "launch",
+            "name": "Debug nRF52840-DK (Native GDB)",
+            "program": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/nrf52840-dk-template",
+            "cwd": "${workspaceFolder}",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Connect to OpenOCD",
+                    "text": "target remote localhost:3333"
+                },
+                {
+                    "description": "Reset and halt target",
+                    "text": "monitor reset halt"
+                },
+                {
+                    "description": "Load program",
+                    "text": "load"
+                }
+            ],
+            "miDebuggerPath": "gdb-multiarch",
+            "miDebuggerArgs": "-q",
+            "stopAtEntry": true,
+            "externalConsole": false
         }
     ]
 }

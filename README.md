@@ -181,10 +181,34 @@ make debug  # Start RTT session
 ```
 
 ### VS Code Integration
-1. Install the "probe-rs" VS Code extension
-2. Open the project in VS Code
-3. Press F5 to start debugging
-4. Breakpoints, variable inspection, and RTT logs work seamlessly
+
+The template includes multiple debug configurations to support different VS Code extensions and debugging workflows:
+
+**Recommended Extensions** (auto-suggested when opening project):
+- `rust-lang.rust-analyzer` - Rust language server
+- `marus25.cortex-debug` - ARM Cortex debugging
+- `ms-vscode.cpptools` - C/C++ debugging support  
+- `probe-rs.probe-rs-debugger` - probe-rs debugging
+
+**Available Debug Configurations**:
+
+1. **Debug nRF52840-DK (Cortex-Debug + OpenOCD)** - Uses OpenOCD with Cortex-Debug extension
+2. **Attach to nRF52840-DK (Cortex-Debug + OpenOCD)** - Attach to running target
+3. **Debug nRF52840-DK (probe-rs)** - Uses probe-rs debugger extension  
+4. **Debug nRF52840-DK (Cortex-Debug + J-Link)** - For J-Link debug probes
+5. **Debug nRF52840-DK (Native GDB)** - Uses GDB with OpenOCD backend
+
+**Quick Start**:
+1. Install recommended extensions (VS Code will prompt automatically)
+2. Open project in VS Code
+3. Press **F5** or go to **Run and Debug** panel
+4. Select your preferred debug configuration
+5. Breakpoints, variable inspection, and RTT logs work seamlessly
+
+**Troubleshooting VS Code Debug**:
+- If "debug type not supported" error appears, install the corresponding extension
+- For probe-rs configuration, ensure `probe-rs-debugger` extension is installed
+- For OpenOCD configurations, ensure `cortex-debug` extension is installed
 
 ### Manual probe-rs Commands
 ```bash

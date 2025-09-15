@@ -1,0 +1,9 @@
+{
+    "recommendations": [
+        "rust-lang.rust-analyzer",
+        "marus25.cortex-debug",
+        "ms-vscode.cpptools",
+        "probe-rs.probe-rs-debugger"
+    ],
+    "unwantedRecommendations": []
+}

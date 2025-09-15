@@ -35,6 +35,7 @@ nb = "1.0"
 
 # For BLE services and data handling
 heapless = { version = "0.8", default-features = false }
+static_cell = "2.1"
 
 [profile.release]
 codegen-units = 1

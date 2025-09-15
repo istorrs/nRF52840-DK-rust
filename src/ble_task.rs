@@ -8,7 +8,11 @@ use nrf_softdevice::{raw, Softdevice};
 // Nordic UART Service (NUS) for phone connectivity
 #[nrf_softdevice::gatt_service(uuid = "6e400001-b5a3-f393-e0a9-e50e24dcca9e")]
 pub struct NordicUartService {
-    #[characteristic(uuid = "6e400002-b5a3-f393-e0a9-e50e24dcca9e", write_without_response, write)]
+    #[characteristic(
+        uuid = "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+        write_without_response,
+        write
+    )]
     rx: Vec<u8, 64>,
 
     #[characteristic(uuid = "6e400003-b5a3-f393-e0a9-e50e24dcca9e", notify)]
@@ -21,7 +25,7 @@ pub struct SensorService {
     #[characteristic(uuid = "12345678-1234-5678-9abc-123456789abd", read, notify)]
     temperature: i16,
 
-    #[characteristic(uuid = "12345678-1234-5678-9abc-123456789abe", read, notify)]  
+    #[characteristic(uuid = "12345678-1234-5678-9abc-123456789abe", read, notify)]
     button_state: u8,
 }
 
@@ -42,13 +46,30 @@ pub async fn ble_task(sd: &'static Softdevice, server: &'static BluetoothServer)
 
     loop {
         let config = peripheral::Config::default();
-        
+
         // Advertisement data
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {
             adv_data: &[
-                0x02, 0x01, raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8,
-                0x03, 0x03, 0x09, 0x18, // 16-bit service UUID list
-                0x0c, 0x09, b'n', b'R', b'F', b'5', b'2', b'8', b'4', b'0', b'-', b'D', b'K', // Complete local name
+                0x02,
+                0x01,
+                raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8,
+                0x03,
+                0x03,
+                0x09,
+                0x18, // 16-bit service UUID list
+                0x0c,
+                0x09,
+                b'n',
+                b'R',
+                b'F',
+                b'5',
+                b'2',
+                b'8',
+                b'4',
+                b'0',
+                b'-',
+                b'D',
+                b'K', // Complete local name
             ],
             scan_data: &[
                 0x03, 0x03, 0x09, 0x18, // Additional service UUIDs
@@ -56,7 +77,7 @@ pub async fn ble_task(sd: &'static Softdevice, server: &'static BluetoothServer)
         };
 
         info!("BLE advertising started - waiting for connection");
-        
+
         match peripheral::advertise_connectable(sd, adv, &config).await {
             Ok(conn) => {
                 info!("BLE device connected!");
@@ -75,8 +96,12 @@ async fn handle_connection(conn: &Connection, server: &BluetoothServer) {
     let _disconnected = gatt_server::run(conn, server, |e| match e {
         BluetoothServerEvent::NordicUart(e) => match e {
             NordicUartServiceEvent::RxWrite(data) => {
-                info!("UART RX received {} bytes: {:?}", data.len(), data.as_slice());
-                
+                info!(
+                    "UART RX received {} bytes: {:?}",
+                    data.len(),
+                    data.as_slice()
+                );
+
                 // Echo the data back (simple example)
                 if let Ok(_echo_msg) = Vec::<u8, 64>::from_slice(data.as_slice()) {
                     // In a real app, you'd process the data and send meaningful responses
@@ -99,6 +124,7 @@ async fn handle_connection(conn: &Connection, server: &BluetoothServer) {
     .await;
 }
 
+#[allow(dead_code)]
 pub async fn send_sensor_data(
     _conn: &Connection,
     _server: &BluetoothServer,
@@ -109,9 +135,13 @@ pub async fn send_sensor_data(
     info!(
         "Sensor data updated - Temp: {}°C, Button: {}",
         temperature,
-        if button_pressed { "pressed" } else { "released" }
+        if button_pressed {
+            "pressed"
+        } else {
+            "released"
+        }
     );
-    
+
     // In a real implementation, you would update the GATT characteristics here
     // server.sensor.temperature_set(temperature);
     // server.sensor.button_state_set(if button_pressed { 1 } else { 0 });

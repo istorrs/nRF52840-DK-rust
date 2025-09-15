@@ -18,24 +18,31 @@ pub async fn heartbeat_task(mut led: Output<'static>) {
 #[task]
 pub async fn button_handler_task(button: Input<'static>, mut led: Output<'static>) {
     info!("Starting button handler task");
-    let mut button_pressed = false;
+    info!(
+        "Button initial state: {}",
+        if button.is_low() { "LOW" } else { "HIGH" }
+    );
+
+    let mut last_state = button.is_high(); // true when not pressed (pull-up)
 
     loop {
-        // Check button state (active low)
-        let is_pressed = button.is_low();
+        let current_state = button.is_high();
 
-        if is_pressed && !button_pressed {
+        // Button pressed (high to low transition)
+        if last_state && !current_state {
             info!("Button pressed!");
-            led.set_low(); // Turn on LED
-            button_pressed = true;
-        } else if !is_pressed && button_pressed {
+            led.set_low(); // Turn on LED (active low)
+        }
+        // Button released (low to high transition)
+        else if !last_state && current_state {
             info!("Button released!");
             led.set_high(); // Turn off LED
-            button_pressed = false;
         }
 
-        // Small delay to debounce
-        Timer::after(Duration::from_millis(50)).await;
+        last_state = current_state;
+
+        // Poll every 10ms for responsive button handling
+        Timer::after(Duration::from_millis(10)).await;
     }
 }
 

@@ -26,10 +26,10 @@ flash-release: release
 	@echo "📱 Flashing release version..."
 	probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/release/nrf52840-dk-template
 
-# Start debug session with RTT logging
+# Start debug session with RTT logging  
 debug: build
 	@echo "🐛 Starting debug session..."
-	probe-rs attach --chip nRF52840_xxAA
+	probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/nrf52840-dk-template
 
 # Clean build artifacts
 clean:
@@ -44,16 +44,25 @@ setup:
 	@echo "Installing flip-link..."
 	cargo install flip-link
 	@echo ""
-	@echo "📋 Manual probe-rs installation required:"
-	@echo "   System dependencies needed for probe-rs:"
-	@echo "   sudo apt update && sudo apt install -y libudev-dev pkg-config"
-	@echo "   cargo install probe-rs-tools"
+	@echo "📋 probe-rs installation info:"
+	@echo "   For development/compilation: Not required - project builds without it"
+	@echo "   For flashing to hardware: System dependencies needed:"
+	@echo "     sudo apt update && sudo apt install -y libudev-dev pkg-config"
+	@echo "     cargo install probe-rs-tools"
 	@echo ""
-	@echo "✅ Basic setup complete! Please install probe-rs manually."
+	@echo "💡 Alternative: Use existing tools like OpenOCD, Black Magic Probe, or nRF Connect"
+	@echo ""
+	@echo "✅ Setup complete! Project ready for development."
 
 # Install probe-rs (run after installing system dependencies)
 setup-probe-rs:
 	@echo "🔧 Installing probe-rs..."
+	@echo "Note: This requires system dependencies (libudev-dev, pkg-config)"
+	@command -v pkg-config >/dev/null 2>&1 && pkg-config --exists libudev || { \
+		echo "❌ System dependencies missing. Run:"; \
+		echo "   sudo apt update && sudo apt install -y libudev-dev pkg-config"; \
+		exit 1; \
+	}
 	cargo install probe-rs-tools
 	@echo "✅ probe-rs installation complete!"
 
