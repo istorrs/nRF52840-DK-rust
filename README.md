@@ -53,12 +53,20 @@ sudo udevadm trigger
 make setup
 ```
 
-4. **Build and flash**:
+4. **Flash SoftDevice S140** (required for BLE functionality):
+```bash
+# Download SoftDevice S140 v7.3.0 from Nordic Semiconductor
+# Flash it to the board (only needed once)
+probe-rs erase --chip nRF52840_xxAA
+probe-rs download --verify --binary-format hex --chip nRF52840_xxAA s140_nrf52_7.3.0_softdevice.hex
+```
+
+5. **Build and flash the application**:
 ```bash
 make flash
 ```
 
-5. **Start debugging with RTT logs**:
+6. **Start debugging with RTT logs**:
 ```bash
 make debug
 ```
@@ -98,14 +106,25 @@ nRF52840-DK-rust/
 
 ## 📱 BLE Connection
 
-The device advertises as **"nRF52840-DK"** and provides a custom GATT service:
+The device advertises as **"nRF52840-DK"** and provides two GATT services:
 
-### Service UUID: `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
-
+### Nordic UART Service (NUS): `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
 **Characteristics:**
-- **RX** (`6e400002-...`): Write data to device
-- **TX** (`6e400003-...`): Read/notify data from device  
-- **Status** (`6e400004-...`): Read device status
+- **RX** (`6e400002-...`): Write data to device  
+- **TX** (`6e400003-...`): Notify data from device
+
+### Custom Sensor Service: `12345678-1234-5678-9abc-123456789abc`
+**Characteristics:**
+- **Temperature** (`12345678-1234-5678-9abc-123456789abd`): Read/notify temperature data
+- **Button State** (`12345678-1234-5678-9abc-123456789abe`): Read/notify button state
+
+### 📋 SoftDevice Requirements
+
+**IMPORTANT**: This template requires Nordic SoftDevice S140 v7.3.0 to be flashed before the application:
+
+1. **Download SoftDevice**: Get `s140_nrf52_7.3.0_softdevice.hex` from [Nordic Semiconductor](https://www.nordicsemi.com/Products/Development-software/S140/Download)
+2. **One-time setup**: Flash SoftDevice once per board
+3. **Memory layout**: Application starts at `0x27000` (after SoftDevice)
 
 ### Phone Connection Example
 

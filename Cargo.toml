@@ -12,9 +12,9 @@ embassy-executor = { version = "0.6", features = ["task-arena-size-32768", "arch
 embassy-time = { version = "0.3", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.2", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 
-# nRF SoftDevice for BLE (commented out for initial template)
-# nrf-softdevice = { version = "0.1", features = ["defmt", "ble-peripheral", "ble-central", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "s140", "nrf52840"] }
-# nrf-softdevice-s140 = "0.1"
+# nRF SoftDevice for BLE
+nrf-softdevice = { version = "0.1", features = ["defmt", "ble-peripheral", "ble-gatt-server", "s140", "nrf52840"] }
+nrf-softdevice-s140 = "0.1"
 
 # Cortex-M and embedded essentials
 cortex-m = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
@@ -33,8 +33,8 @@ defmt-rtt = "0.4"
 fixed = "1.28"
 nb = "1.0"
 
-# Optional: For advanced BLE services (when BLE is enabled)
-# heapless = { version = "0.8", default-features = false }
+# For BLE services and data handling
+heapless = { version = "0.8", default-features = false }
 
 [profile.release]
 codegen-units = 1
