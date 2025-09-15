@@ -1,0 +1,58 @@
+[package]
+name = "nrf52840-dk-template"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "nRF52840-DK template with Embassy async framework, GPIO control, and BLE support"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Embassy async framework
+embassy-executor = { version = "0.6", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-nrf = { version = "0.2", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
+
+# nRF SoftDevice for BLE
+nrf-softdevice = { version = "0.1", features = ["defmt", "ble-peripheral", "ble-central", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "s140", "nrf52840"] }
+nrf-softdevice-s140 = "0.1"
+
+# Cortex-M and embedded essentials
+cortex-m = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7"
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embedded-io = "0.6"
+embedded-io-async = "0.6"
+
+# Panic handler and logging
+panic-halt = "0.2"
+defmt = "0.3"
+defmt-rtt = "0.4"
+
+# Fixed point math for sensor data
+fixed = "1.28"
+nb = "1.0"
+
+# Optional: For advanced BLE services
+heapless = { version = "0.8", default-features = false }
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
+
+[profile.dev]
+codegen-units = 1
+debug = 2
+incremental = false
+opt-level = 1
+overflow-checks = true
+
+# Optimize dependencies even in dev mode
+[profile.dev.package."*"]
+codegen-units = 1
+opt-level = 's'

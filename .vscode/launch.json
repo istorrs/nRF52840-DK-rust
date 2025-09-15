@@ -1,0 +1,64 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Debug nRF52840-DK",
+            "cwd": "${workspaceFolder}",
+            "chip": "nRF52840_xxAA",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "resetAfterFlashing": true,
+                "haltAfterReset": true
+            },
+            "runtimeArgs": [
+                "--chip",
+                "nRF52840_xxAA"
+            ],
+            "connectUnderReset": false,
+            "speed": 4000,
+            "rttConfig": {
+                "enabled": true,
+                "timeout": 5000,
+                "showTimestamps": true,
+                "logLevel": "Debug",
+                "channels": [
+                    {
+                        "channelNumber": 0,
+                        "channelName": "defmt",
+                        "format": "Defmt",
+                        "showOnStartup": true
+                    }
+                ]
+            },
+            "consoleLogLevel": "Debug",
+            "wireProtocol": "Swd"
+        },
+        {
+            "type": "probe-rs-debug",
+            "request": "attach",
+            "name": "Attach to nRF52840-DK",
+            "cwd": "${workspaceFolder}",
+            "chip": "nRF52840_xxAA",
+            "connectUnderReset": false,
+            "speed": 4000,
+            "rttConfig": {
+                "enabled": true,
+                "timeout": 5000,
+                "showTimestamps": true,
+                "logLevel": "Debug",
+                "channels": [
+                    {
+                        "channelNumber": 0,
+                        "channelName": "defmt",
+                        "format": "Defmt",
+                        "showOnStartup": true
+                    }
+                ]
+            },
+            "consoleLogLevel": "Debug",
+            "wireProtocol": "Swd"
+        }
+    ]
+}

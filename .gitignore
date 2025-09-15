@@ -1,0 +1,47 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE files
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.exe
+*.elf
+*.bin
+*.hex
+
+# Debug files
+*.pdb
+*.dSYM/
+
+# Embedded specific
+*.map
+*.list
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Local environment
+.env
+.env.local
+
+# Personal settings that shouldn't be shared
+.claude/settings.local.json
+
+# Logs
+*.log
