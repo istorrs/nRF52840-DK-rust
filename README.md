@@ -1,15 +1,17 @@
 # nRF52840-DK Embassy Template
 
-A best-in-class Rust project template for the nRF52840-DK development board featuring Embassy async framework and comprehensive GPIO control. BLE functionality available separately (see docs/ble-integration.md).
+A comprehensive Rust project template for the nRF52840-DK development board featuring Embassy async framework with multiple application configurations. Supports GPIO-only, BLE functionality, and combined GPIO+BLE applications.
 
 ## 🚀 Features
 
+- **Multiple App Configurations**: GPIO-only, BLE scanner, GPIO+BLE combined apps
 - **Embassy Async Framework**: Modern async/await embedded programming
 - **GPIO Control**: LED patterns, button handling with responsive polling
-- **Power Efficient**: Automatic low-power mode when idle  
+- **BLE Support**: Complete BLE scanning and GPIO integration
+- **SoftDevice Compatible**: Proper Nordic SoftDevice S140 integration
+- **Power Efficient**: Automatic low-power mode when idle
 - **Easy Debugging**: VS Code integration with RTT logging
-- **One-Command Flashing**: Simple build and deploy workflow
-- **BLE Ready**: Complete BLE implementation available (see docs/ble-integration.md)
+- **Flexible Build System**: Individual or combined app building
 
 ## 📋 Prerequisites
 
@@ -57,14 +59,33 @@ sudo udevadm trigger
 make setup
 ```
 
-4. **Build and flash the application**:
+4. **Choose your application and build/flash**:
+
+**GPIO-only app (default)**:
 ```bash
-make flash
+make flash-gpio          # or just: make flash
+```
+
+**BLE + GPIO combined app**:
+```bash
+make setup-ble          # One-time SoftDevice setup
+make flash-ble
+```
+
+**BLE scanner app**:
+```bash
+make setup-ble          # One-time SoftDevice setup
+make flash-ble-scan
+```
+
+**SoftDevice-compatible GPIO app**:
+```bash
+make flash-gpio-sd
 ```
 
 5. **Start debugging with RTT logs**:
 ```bash
-make debug
+make debug-gpio         # or: make debug-ble, make debug-ble-scan
 ```
 
 ## 🏗️ Project Structure
@@ -72,19 +93,51 @@ make debug
 ```
 nRF52840-DK-rust/
 ├── src/
-│   ├── main.rs           # Embassy executor and task spawning
-│   ├── gpio_tasks.rs     # Async GPIO handlers (LEDs, buttons)
-│   └── ble_task.rs       # BLE GATT server implementation
-├── .cargo/config.toml    # Cargo configuration for nRF52840
-├── Cargo.toml           # Dependencies (Embassy, nrf-softdevice)
-├── memory.x             # Memory layout with SoftDevice S140
-├── Embed.toml           # probe-rs configuration
-├── .vscode/             # VS Code debug configuration
-│   ├── launch.json      # Debug profiles
-│   └── settings.json    # Rust analyzer settings
-├── scripts/             # Utility scripts
-└── Makefile             # Convenient build commands
+│   ├── main.rs              # GPIO-only app (default)
+│   ├── gpio_tasks.rs        # Shared GPIO task implementations
+│   └── bin/
+│       ├── gpio_app.rs      # SoftDevice-compatible GPIO app
+│       ├── ble_gpio.rs      # BLE + GPIO combined app
+│       └── ble_scan.rs      # BLE scanner app
+├── .cargo/config.toml       # Cargo configuration for nRF52840
+├── Cargo.toml              # Dependencies (Embassy, nrf-softdevice)
+├── memory-*.x              # Memory layouts for different configurations
+├── build.rs                # Build script for memory layout selection
+├── Embed.toml              # probe-rs configuration
+├── .vscode/                # VS Code debug configuration
+│   ├── launch.json         # Debug profiles
+│   └── settings.json       # Rust analyzer settings
+├── scripts/                # Utility scripts
+└── Makefile                # Multi-app build commands
 ```
+
+## 📱 Application Configurations
+
+### 1. GPIO-Only App (`main.rs`)
+- **Purpose**: Basic GPIO control without BLE
+- **Features**: LED patterns, button handling, RTT logging
+- **Memory**: Uses full memory layout (no SoftDevice)
+- **Build**: `make build-gpio` or `make build`
+
+### 2. SoftDevice-Compatible GPIO App (`src/bin/gpio_app.rs`)
+- **Purpose**: GPIO control that preserves SoftDevice memory space
+- **Features**: Same GPIO functionality, SoftDevice-compatible interrupt priorities
+- **Memory**: Uses SoftDevice-preserving memory layout
+- **Build**: `make build-gpio-sd`
+
+### 3. BLE + GPIO Combined App (`src/bin/ble_gpio.rs`)
+- **Purpose**: Full BLE functionality with GPIO control
+- **Features**: BLE scanning, GPIO patterns, combined operation
+- **Memory**: Uses SoftDevice memory layout
+- **Requires**: SoftDevice S140 v7.3.0 flashed first
+- **Build**: `make build-ble`
+
+### 4. BLE Scanner App (`src/bin/ble_scan.rs`)
+- **Purpose**: Dedicated BLE scanning and device discovery
+- **Features**: BLE advertisement scanning, device information logging
+- **Memory**: Uses SoftDevice memory layout
+- **Requires**: SoftDevice S140 v7.3.0 flashed first
+- **Build**: `make build-ble-scan`
 
 ## 🎮 Hardware Mapping (nRF52840-DK)
 
@@ -100,19 +153,21 @@ nRF52840-DK-rust/
 - **BUTTON3** (P0.24): Available for custom use
 - **BUTTON4** (P0.25): Available for custom use
 
-## 📱 BLE Connection
+## 📱 BLE Functionality
 
-The device advertises as **"nRF52840-DK"** and provides two GATT services:
+### BLE Scanner App (`ble_scan.rs`)
+- **Purpose**: Scans for nearby BLE devices and logs advertisement data
+- **Output**: Device addresses, connection status, advertisement data via RTT
+- **Usage**: Ideal for BLE environment discovery and debugging
 
-### Nordic UART Service (NUS): `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
-**Characteristics:**
-- **RX** (`6e400002-...`): Write data to device  
-- **TX** (`6e400003-...`): Notify data from device
-
-### Custom Sensor Service: `12345678-1234-5678-9abc-123456789abc`
-**Characteristics:**
-- **Temperature** (`12345678-1234-5678-9abc-123456789abd`): Read/notify temperature data
-- **Button State** (`12345678-1234-5678-9abc-123456789abe`): Read/notify button state
+### BLE + GPIO Combined App (`ble_gpio.rs`)
+- **Purpose**: Combines BLE scanning with GPIO control
+- **Features**:
+  - Simultaneous BLE device scanning
+  - LED heartbeat and button handling
+  - GPIO pattern display
+- **Advertisement**: Device advertises as **"nRF52840-DK-GPIO"**
+- **Usage**: Full-featured application demonstrating BLE/GPIO coexistence
 
 ### 📋 SoftDevice Requirements
 
@@ -126,41 +181,50 @@ The device advertises as **"nRF52840-DK"** and provides two GATT services:
 
 Use any BLE scanner app (nRF Connect, BLE Scanner) to:
 
-1. Scan for "nRF52840-DK"
-2. Connect to the device
-3. Discover services
-4. Write data to RX characteristic
-5. Enable notifications on TX characteristic
+1. Scan for "nRF52840-DK-GPIO" (BLE + GPIO app)
+2. View discovered devices and their advertisement data
+3. Monitor RTT logs for detailed BLE activity
 
 ## 🛠️ Development Commands
 
+### App-Specific Commands
 ```bash
-# Build debug version
-make build
+# GPIO-only applications
+make build-gpio          # Build GPIO-only app
+make flash-gpio          # Flash GPIO-only app
+make debug-gpio          # Debug GPIO-only app
 
-# Build optimized release version
-make release
+make build-gpio-sd       # Build SoftDevice-compatible GPIO app
+make flash-gpio-sd       # Flash SoftDevice-compatible GPIO app
+make debug-gpio-sd       # Debug SoftDevice-compatible GPIO app
 
-# Flash debug version
-make flash
+# BLE applications (require SoftDevice setup)
+make build-ble           # Build BLE + GPIO app
+make flash-ble           # Flash BLE + GPIO app
+make debug-ble           # Debug BLE + GPIO app
 
-# Flash release version  
-make flash-release
+make build-ble-scan      # Build BLE scanner app
+make flash-ble-scan      # Flash BLE scanner app
+make debug-ble-scan      # Debug BLE scanner app
 
-# Start RTT debug session
-make debug
+# Utility commands
+make build-all           # Build all applications
+make setup-ble           # Setup SoftDevice S140 (one-time)
+```
 
-# Format code
-make format
+### Legacy Commands (Default to GPIO-only)
+```bash
+make build               # Build GPIO-only app (default)
+make release             # Build release version (GPIO-only)
+make flash               # Flash GPIO-only app (default)
+make flash-release       # Flash release version (GPIO-only)
+make debug               # Debug GPIO-only app (default)
 
-# Run code checks (clippy + format)
-make check
-
-# Clean build artifacts
-make clean
-
-# Show all available commands
-make help
+# Maintenance commands
+make format              # Format code
+make check               # Run code checks (clippy + format)
+make clean               # Clean build artifacts
+make help                # Show all available commands
 ```
 
 ## 🔍 Debugging
@@ -204,8 +268,11 @@ The template includes multiple debug configurations to support different VS Code
 
 ### Manual probe-rs Commands
 ```bash
-# Flash and run
-probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/nrf52840-dk-template
+# Flash and run different apps
+probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/nrf52840-dk-template  # GPIO-only
+probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/gpio_app              # GPIO + SoftDevice
+probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_gpio              # BLE + GPIO
+probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan              # BLE scanner
 
 # Attach for debugging
 probe-rs attach --chip nRF52840_xxAA

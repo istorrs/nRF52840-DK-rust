@@ -7,35 +7,30 @@ description = "nRF52840-DK template with Embassy async framework, GPIO control, 
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-# Embassy async framework  
-embassy-executor = { version = "0.6", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.3", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.2", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
-
-# nRF SoftDevice for BLE
-nrf-softdevice = { version = "0.1", features = ["defmt", "ble-peripheral", "ble-gatt-server", "s140", "nrf52840"] }
-nrf-softdevice-s140 = "0.1"
+# Embassy async framework
+embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.4.0", features = ["defmt"] }
+embassy-nrf = { version = "0.3", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "time"] }
 
 # Cortex-M and embedded essentials
-cortex-m = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m = "0.7"
 cortex-m-rt = "0.7"
+
+# Critical section implementation
+critical-section = "1.2"
 embedded-hal = "1.0"
-embedded-hal-async = "1.0"
-embedded-io = "0.6"
-embedded-io-async = "0.6"
 
 # Panic handler and logging
 panic-halt = "0.2"
 defmt = "0.3"
 defmt-rtt = "0.4"
 
-# Fixed point math for sensor data
-fixed = "1.28"
-nb = "1.0"
-
-# For BLE services and data handling
+# For async tasks
 heapless = { version = "0.8", default-features = false }
-static_cell = "2.1"
+
+# SoftDevice for BLE app (optional for main, required for BLE binary)
+nrf-softdevice = { version = "0.1", features = ["defmt", "ble-peripheral", "ble-central", "ble-gatt-server", "s140", "nrf52840", "critical-section-impl"], optional = true }
+nrf-softdevice-s140 = { version = "0.1", optional = true }
 
 [profile.release]
 codegen-units = 1
@@ -57,3 +52,10 @@ overflow-checks = true
 [profile.dev.package."*"]
 codegen-units = 1
 opt-level = 's'
+
+[features]
+default = ["cortex-m/critical-section-single-core"]
+# GPIO feature enables cortex-m critical section for main binary
+gpio = ["cortex-m/critical-section-single-core"]
+# BLE feature for the BLE binary (nrf-softdevice provides critical-section-impl)
+ble = ["dep:nrf-softdevice", "dep:nrf-softdevice-s140"]

@@ -45,3 +45,5 @@ Thumbs.db
 
 # Logs
 *.log
+.bak
+rtt_output.txt

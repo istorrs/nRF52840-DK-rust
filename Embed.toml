@@ -1,5 +1,4 @@
 [default.probe]
-# USB VID/PID for nRF52840-DK
 usb_vid = "1366"
 usb_pid = "1015"
 protocol = "Swd"
@@ -21,6 +20,7 @@ connect_under_reset = false
 [default.rtt]
 enabled = true
 up_mode = "NoBlockSkip"
+control_block_address = 0x20037660  # Updated to match new _SEGGER_RTT
 channels = [
     { up = 0, name = "defmt", format = "Defmt" },
 ]

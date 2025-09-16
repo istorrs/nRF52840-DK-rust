@@ -5,5 +5,5 @@
 //! This library provides reusable components for Embassy-based
 //! nRF52840 development including GPIO tasks and BLE functionality.
 
-pub mod ble_task;
+// pub mod ble_task;  // Disabled for GPIO-only mode
 pub mod gpio_tasks;
