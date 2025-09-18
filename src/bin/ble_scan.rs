@@ -3,20 +3,63 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+#[allow(clippy::single_component_path_imports)]
+use embassy_nrf;
+use embassy_time::{Duration, Timer};
 use nrf_softdevice::ble::central;
 use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
+// SoftDevice task
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
+}
+
+// BLE scanning task (separate from main to allow proper timing)
+#[embassy_executor::task]
+async fn ble_scan_task(sd: &'static Softdevice) {
+    info!("Starting BLE scan task...");
+
+    Timer::after(Duration::from_secs(2)).await; // Give SoftDevice time to fully initialize
+
+    info!("Beginning BLE scan...");
+    let config = central::ScanConfig {
+        timeout: 30, // 30 second timeout
+        ..Default::default()
+    };
+    let res = central::scan(sd, &config, |params| {
+        // Keep callback minimal to avoid blocking interrupts
+        info!(
+            "BLE Device: addr={:?} connectable={} data_len={}",
+            params.peer_addr.addr,
+            params.type_.connectable(),
+            params.data.len
+        );
+
+        None::<()>
+    })
+    .await;
+
+    match res {
+        Ok(_) => info!("BLE scan completed successfully"),
+        Err(e) => info!("BLE scan finished: {:?}", e),
+    }
 }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("=== nRF52840-DK BLE Scanner Starting ===");
 
-    // Configure SoftDevice with the same config as before
+    // Initialize Embassy FIRST with SoftDevice-compatible settings
+    info!("Initializing Embassy...");
+    let mut embassy_config = embassy_nrf::config::Config::default();
+    embassy_config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    embassy_config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    let _p = embassy_nrf::init(embassy_config);
+    info!("✅ Embassy initialized");
+
+    // Configure SoftDevice with the same config as working BLE+GPIO app
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_RC as u8,
@@ -59,32 +102,15 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(softdevice_task(sd)));
     info!("✅ SoftDevice task spawned");
 
-    info!("Starting BLE scan...");
+    info!("Spawning BLE scan task...");
+    unwrap!(spawner.spawn(ble_scan_task(sd)));
+    info!("✅ BLE scan task spawned");
 
-    let config = central::ScanConfig::default();
-    let res = central::scan(sd, &config, |params| {
-        info!(
-            "Advertisement: addr={:?} addr_type={:?} connectable={} scan_rsp={}",
-            params.peer_addr.addr,
-            params.peer_addr.addr_type(),
-            params.type_.connectable(),
-            params.type_.scan_response(),
-        );
+    info!("All systems operational - BLE scanner ready!");
 
-        // Simple data dump without private util function
-        info!("  Data length: {}", params.data.len);
-        if params.data.len > 0 {
-            let data_len = params.data.len as usize;
-            let slice_len = data_len.min(8);
-            unsafe {
-                let data_slice = core::slice::from_raw_parts(params.data.p_data, slice_len);
-                info!("  First bytes: {:02x}", data_slice);
-            }
-        }
-
-        None
-    })
-    .await;
-    unwrap!(res);
-    info!("Scan complete");
+    // Main loop - keep the app alive
+    loop {
+        info!("BLE Scanner running...");
+        Timer::after(Duration::from_millis(10000)).await;
+    }
 }

@@ -12,6 +12,7 @@ use {defmt_rtt as _, panic_halt as _};
 // GPIO tasks
 #[embassy_executor::task]
 async fn heartbeat_task(mut led: Output<'static>) {
+    info!("Starting heartbeat task");
     loop {
         led.set_low();
         Timer::after(Duration::from_millis(100)).await;
@@ -21,19 +22,39 @@ async fn heartbeat_task(mut led: Output<'static>) {
 }
 
 #[embassy_executor::task]
-async fn button_handler_task(btn: Input<'static>, mut led: Output<'static>) {
+async fn button_handler_task(button: Input<'static>, mut led: Output<'static>) {
+    info!("Starting button handler task");
+    info!(
+        "Button initial state: {}",
+        if button.is_low() { "LOW" } else { "HIGH" }
+    );
+
+    let mut last_state = button.is_high(); // true when not pressed (pull-up)
+
     loop {
-        if btn.is_low() {
-            led.set_low(); // LED on when button pressed
-        } else {
-            led.set_high(); // LED off when button released
+        let current_state = button.is_high();
+
+        // Button pressed (high to low transition)
+        if last_state && !current_state {
+            info!("Button pressed!");
+            led.set_low(); // Turn on LED (active low)
         }
-        Timer::after(Duration::from_millis(50)).await;
+        // Button released (low to high transition)
+        else if !last_state && current_state {
+            info!("Button released!");
+            led.set_high(); // Turn off LED
+        }
+
+        last_state = current_state;
+
+        // Poll every 10ms for responsive button handling
+        Timer::after(Duration::from_millis(10)).await;
     }
 }
 
 #[embassy_executor::task]
 async fn led_pattern_task(mut led3: Output<'static>, mut led4: Output<'static>) {
+    info!("Starting LED pattern task");
     loop {
         // Pattern: LED3 and LED4 alternating
         led3.set_low();

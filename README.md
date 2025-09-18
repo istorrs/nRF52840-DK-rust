@@ -1,10 +1,11 @@
 # nRF52840-DK Embassy Template
 
-A comprehensive Rust project template for the nRF52840-DK development board featuring Embassy async framework with multiple application configurations. Supports GPIO-only, BLE functionality, and combined GPIO+BLE applications.
+A comprehensive Rust project template for the nRF52840-DK development board featuring Embassy async framework with multiple application configurations and multi-board support. Supports GPIO-only, BLE functionality, and combined GPIO+BLE applications with dynamic board targeting.
 
 ## 🚀 Features
 
 - **Multiple App Configurations**: GPIO-only, BLE scanner, GPIO+BLE combined apps
+- **Multi-Board Support**: Dynamic detection and targeting of multiple connected nRF52840-DK boards
 - **Embassy Async Framework**: Modern async/await embedded programming
 - **GPIO Control**: LED patterns, button handling with responsive polling
 - **BLE Support**: Complete BLE scanning and GPIO integration
@@ -86,6 +87,53 @@ make flash-gpio-sd
 5. **Start debugging with RTT logs**:
 ```bash
 make debug-gpio         # or: make debug-ble, make debug-ble-scan
+```
+
+## 🎯 Multiple Board Support
+
+This template supports multiple nRF52840-DK boards connected simultaneously. Board selection is automatic and dynamic.
+
+### Board Detection and Selection
+
+**List connected boards**:
+```bash
+make list-boards        # Show available boards
+probe-rs list          # Detailed probe information
+```
+
+**Target specific board** (default is board 0):
+```bash
+# Use default board (0)
+make flash-gpio
+make debug-ble
+
+# Target specific board
+make flash-gpio BOARD=1
+make debug-ble-scan BOARD=0
+make setup-ble BOARD=1
+```
+
+### Examples with Multiple Boards
+
+**Scenario: Two boards for BLE communication testing**
+```bash
+# Setup both boards with SoftDevice
+make setup-ble BOARD=0
+make setup-ble BOARD=1
+
+# Flash different apps to each board
+make flash-ble BOARD=0        # Board 0: BLE + GPIO combined
+make flash-ble-scan BOARD=1   # Board 1: BLE scanner
+
+# Debug both simultaneously (separate terminals)
+make debug-ble BOARD=0        # Terminal 1: Monitor BLE + GPIO
+make debug-ble-scan BOARD=1   # Terminal 2: Monitor BLE scanning
+```
+
+**Error Handling**: The system provides clear error messages if boards are not found:
+```
+Board 2 not found. Available boards: 0-1. Run 'probe-rs list' for details.
+No boards detected. Please connect an nRF52840-DK and run 'probe-rs list'
 ```
 
 ## 🏗️ Project Structure
@@ -174,8 +222,9 @@ nRF52840-DK-rust/
 **IMPORTANT**: This template requires Nordic SoftDevice S140 v7.3.0 to be flashed before the application:
 
 1. **Download SoftDevice**: Get `s140_nrf52_7.3.0_softdevice.hex` from [Nordic Semiconductor](https://www.nordicsemi.com/Products/Development-software/S140/Download)
-2. **One-time setup**: Flash SoftDevice once per board
+2. **One-time setup**: Flash SoftDevice once per board with `make setup-ble BOARD=N`
 3. **Memory layout**: Application starts at `0x27000` (after SoftDevice)
+4. **Preservation**: BLE apps use `probe-rs download` to preserve SoftDevice during flashing
 
 ### Phone Connection Example
 
@@ -186,6 +235,8 @@ Use any BLE scanner app (nRF Connect, BLE Scanner) to:
 3. Monitor RTT logs for detailed BLE activity
 
 ## 🛠️ Development Commands
+
+**All commands support board selection with `BOARD=N` parameter (default: BOARD=0)**
 
 ### App-Specific Commands
 ```bash
@@ -210,6 +261,7 @@ make debug-ble-scan      # Debug BLE scanner app
 # Utility commands
 make build-all           # Build all applications
 make setup-ble           # Setup SoftDevice S140 (one-time)
+make list-boards         # List connected nRF52840-DK boards
 ```
 
 ### Legacy Commands (Default to GPIO-only)
@@ -223,6 +275,8 @@ make debug               # Debug GPIO-only app (default)
 # Maintenance commands
 make format              # Format code
 make check               # Run code checks (clippy + format)
+make test-configs        # Test all application configurations
+make release-test        # Complete release test sequence
 make clean               # Clean build artifacts
 make help                # Show all available commands
 ```
@@ -271,11 +325,14 @@ The template includes multiple debug configurations to support different VS Code
 # Flash and run different apps
 probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/nrf52840-dk-template  # GPIO-only
 probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/gpio_app              # GPIO + SoftDevice
-probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_gpio              # BLE + GPIO
-probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan              # BLE scanner
 
-# Attach for debugging
-probe-rs attach --chip nRF52840_xxAA
+# BLE apps (preserve SoftDevice)
+probe-rs download --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_gpio         # BLE + GPIO (download only)
+probe-rs download --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan         # BLE scanner (download only)
+
+# Attach for debugging (after download)
+probe-rs attach --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_gpio    # For BLE + GPIO app
+probe-rs attach --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan    # For BLE scanner app
 ```
 
 ## ⚡ Power Management
@@ -332,9 +389,14 @@ sudo usermod -a -G plugdev $USER
 - Check `memory.x` matches your SoftDevice version
 - Ensure SoftDevice S140 is flashed first
 
-**BLE not advertising**  
+**BLE not advertising**
 - Verify SoftDevice S140 is present
 - Check RTT logs for BLE initialization errors
+
+**"Core is locked" or erase errors**
+- For BLE apps, use `make flash-ble` or `make debug-ble` (preserves SoftDevice)
+- Don't use `probe-rs run` directly for BLE apps (erases SoftDevice)
+- Re-flash SoftDevice with `make setup-ble` if accidentally erased
 
 ### Getting Help
 - Embassy documentation: https://embassy.dev  

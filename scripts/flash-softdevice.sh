@@ -70,10 +70,10 @@ fi
 
 echo ""
 echo "🔥 Erasing chip..."
-probe-rs erase --chip nRF52840_xxAA --allow-erase-all
+probe-rs erase ${PROBE_ARG} --chip nRF52840_xxAA --allow-erase-all
 
 echo "📱 Flashing SoftDevice S140 v${SOFTDEVICE_VERSION}..."
-probe-rs download --verify --binary-format hex --chip nRF52840_xxAA "$SOFTDEVICE_FILE"
+probe-rs download ${PROBE_ARG} --verify --binary-format hex --chip nRF52840_xxAA "$SOFTDEVICE_FILE"
 
 echo ""
 echo "✅ SoftDevice S140 v${SOFTDEVICE_VERSION} flashed successfully!"

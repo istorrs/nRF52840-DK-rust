@@ -7,10 +7,11 @@ use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_halt as _};
 
-use cortex_m;
-
 fn rtt_flush() {
-    cortex_m::asm::delay(1000);
+    // Small delay to ensure RTT buffer is flushed
+    for _ in 0..1000 {
+        core::hint::spin_loop();
+    }
 }
 
 // Simple debug macro

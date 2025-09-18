@@ -126,10 +126,10 @@ FAIL_COUNT=0
 for result in "${RESULTS[@]}"; do
     if [[ $result == *"PASS"* ]]; then
         echo -e "${GREEN}✅ $result${NC}"
-        ((PASS_COUNT++))
+        PASS_COUNT=$((PASS_COUNT + 1))
     else
         echo -e "${RED}❌ $result${NC}"
-        ((FAIL_COUNT++))
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
 done
 
