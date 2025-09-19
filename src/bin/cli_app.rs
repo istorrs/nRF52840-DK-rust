@@ -95,9 +95,11 @@ async fn main(spawner: Spawner) {
     let uarte = Uarte::new(p.UARTE1, Irqs, p.P1_14, p.P1_15, uart_config);
     info!("✅ Peripherals configured");
 
-    // Initialize CLI components with LEDs
+    // Initialize CLI components with LEDs and SoftDevice
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
-    let mut command_handler = CommandHandler::new().with_leds(led3, led4);
+    let mut command_handler = CommandHandler::new()
+        .with_leds(led3, led4)
+        .with_softdevice(sd);
 
     // Send welcome message
     let _ = terminal.write_line("").await;

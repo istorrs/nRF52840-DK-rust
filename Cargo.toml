@@ -62,5 +62,5 @@ default = ["cortex-m/critical-section-single-core"]
 gpio = ["cortex-m/critical-section-single-core"]
 # BLE feature for the BLE binary (nrf-softdevice provides critical-section-impl)
 ble = ["dep:nrf-softdevice", "dep:nrf-softdevice-s140"]
-# CLI feature enables USB CDC + BLE functionality
+# CLI feature enables USB CDC + BLE functionality (nrf-softdevice provides critical-section)
 cli = ["dep:embassy-usb", "ble"]

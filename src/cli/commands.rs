@@ -1,14 +1,17 @@
 use super::{CliCommand, CliError};
+use cortex_m::peripheral::SCB;
 use defmt::info;
 use embassy_nrf::gpio::Output;
 use embassy_time::Instant;
 use heapless::String;
+use nrf_softdevice::Softdevice;
 
 pub struct CommandHandler<'d> {
     led_states: [bool; 4],
     start_time: Instant,
     led3: Option<Output<'d>>,
     led4: Option<Output<'d>>,
+    softdevice: Option<&'d Softdevice>,
 }
 
 impl<'d> Default for CommandHandler<'d> {
@@ -24,12 +27,18 @@ impl<'d> CommandHandler<'d> {
             start_time: Instant::now(),
             led3: None,
             led4: None,
+            softdevice: None,
         }
     }
 
     pub fn with_leds(mut self, led3: Output<'d>, led4: Output<'d>) -> Self {
         self.led3 = Some(led3);
         self.led4 = Some(led4);
+        self
+    }
+
+    pub fn with_softdevice(mut self, softdevice: &'d Softdevice) -> Self {
+        self.softdevice = Some(softdevice);
         self
     }
 
@@ -89,8 +98,9 @@ impl<'d> CommandHandler<'d> {
             }
             CliCommand::Reset => {
                 info!("CLI: Reset requested");
-                let _ = response.push_str("System reset not implemented yet");
-                // TODO: Implement system reset
+                let _ = response.push_str("Resetting system...");
+                // Perform system reset using cortex-m
+                SCB::sys_reset();
             }
             CliCommand::Echo(text) => {
                 info!("CLI: Echo requested: {}", text.as_str());
@@ -153,8 +163,29 @@ impl<'d> CommandHandler<'d> {
             }
             CliCommand::Temp => {
                 info!("CLI: Temperature requested");
-                let _ = response.push_str("Temperature reading not implemented yet");
-                // TODO: Read temperature sensor
+                // Use SoftDevice temperature reading
+                match self.read_temperature() {
+                    Ok(temp_celsius) => {
+                        let _ = response.push_str("Temperature: ");
+                        // Format temperature with one decimal place manually
+                        let temp_int = temp_celsius as i32;
+                        let temp_frac = ((temp_celsius - temp_int as f32) * 10.0) as i32;
+
+                        // Write integer part (handle negative temperatures)
+                        if temp_int < 0 {
+                            let _ = response.push('-');
+                            let _ = write_num(&mut response, (-temp_int) as u64);
+                        } else {
+                            let _ = write_num(&mut response, temp_int as u64);
+                        }
+                        let _ = response.push('.');
+                        let _ = response.push((b'0' + temp_frac.unsigned_abs() as u8) as char);
+                        let _ = response.push_str("°C");
+                    }
+                    Err(_) => {
+                        let _ = response.push_str("Failed to read temperature sensor");
+                    }
+                }
             }
             CliCommand::BtOn => {
                 info!("CLI: BLE enable requested");
@@ -180,6 +211,22 @@ impl<'d> CommandHandler<'d> {
         }
 
         Ok(response)
+    }
+
+    fn read_temperature(&self) -> Result<f32, CliError> {
+        // Read temperature using SoftDevice
+        if let Some(softdevice) = self.softdevice {
+            match nrf_softdevice::temperature_celsius(softdevice) {
+                Ok(temp_fixed) => {
+                    // Convert fixed-point I30F2 to float
+                    let temp_celsius = temp_fixed.to_num::<f32>();
+                    Ok(temp_celsius)
+                }
+                Err(_) => Err(CliError::UartError),
+            }
+        } else {
+            Err(CliError::UartError) // No SoftDevice available
+        }
     }
 }
 
