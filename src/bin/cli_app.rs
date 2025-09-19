@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::{
     bind_interrupts,
-    gpio::{Level, Output, OutputDrive},
+    gpio::{Input, Level, Output, OutputDrive, Pull},
     uarte::{self, Uarte},
 };
 use embassy_time::{Duration, Timer};
@@ -87,6 +87,13 @@ async fn main(spawner: Spawner) {
     let led3 = Output::new(p.P0_15, Level::High, OutputDrive::Standard);
     let led4 = Output::new(p.P0_16, Level::High, OutputDrive::Standard);
 
+    // Configure Buttons (P0.11, P0.12, P0.24, P0.25) for CLI commands
+    // Buttons are active low, so we use internal pull-up resistors
+    let button1 = Input::new(p.P0_11, Pull::Up);
+    let button2 = Input::new(p.P0_12, Pull::Up);
+    let button3 = Input::new(p.P0_24, Pull::Up);
+    let button4 = Input::new(p.P0_25, Pull::Up);
+
     // Configure UART for CLI
     let mut uart_config = uarte::Config::default();
     uart_config.parity = uarte::Parity::EXCLUDED;
@@ -95,10 +102,11 @@ async fn main(spawner: Spawner) {
     let uarte = Uarte::new(p.UARTE1, Irqs, p.P1_14, p.P1_15, uart_config);
     info!("✅ Peripherals configured");
 
-    // Initialize CLI components with LEDs and SoftDevice
+    // Initialize CLI components with LEDs, buttons, and SoftDevice
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
     let mut command_handler = CommandHandler::new()
         .with_leds(led3, led4)
+        .with_buttons(button1, button2, button3, button4)
         .with_softdevice(sd);
 
     // Send welcome message

@@ -1,7 +1,7 @@
 use super::{CliCommand, CliError};
 use cortex_m::peripheral::SCB;
 use defmt::info;
-use embassy_nrf::gpio::Output;
+use embassy_nrf::gpio::{Input, Output};
 use embassy_time::Instant;
 use heapless::String;
 use nrf_softdevice::ble::central;
@@ -12,6 +12,10 @@ pub struct CommandHandler<'d> {
     start_time: Instant,
     led3: Option<Output<'d>>,
     led4: Option<Output<'d>>,
+    button1: Option<Input<'d>>,
+    button2: Option<Input<'d>>,
+    button3: Option<Input<'d>>,
+    button4: Option<Input<'d>>,
     softdevice: Option<&'d Softdevice>,
 }
 
@@ -28,6 +32,10 @@ impl<'d> CommandHandler<'d> {
             start_time: Instant::now(),
             led3: None,
             led4: None,
+            button1: None,
+            button2: None,
+            button3: None,
+            button4: None,
             softdevice: None,
         }
     }
@@ -35,6 +43,20 @@ impl<'d> CommandHandler<'d> {
     pub fn with_leds(mut self, led3: Output<'d>, led4: Output<'d>) -> Self {
         self.led3 = Some(led3);
         self.led4 = Some(led4);
+        self
+    }
+
+    pub fn with_buttons(
+        mut self,
+        button1: Input<'d>,
+        button2: Input<'d>,
+        button3: Input<'d>,
+        button4: Input<'d>,
+    ) -> Self {
+        self.button1 = Some(button1);
+        self.button2 = Some(button2);
+        self.button3 = Some(button3);
+        self.button4 = Some(button4);
         self
     }
 
@@ -159,8 +181,34 @@ impl<'d> CommandHandler<'d> {
             }
             CliCommand::Button => {
                 info!("CLI: Button state requested");
-                let _ = response.push_str("Button reading not implemented yet");
-                // TODO: Read actual button states
+                let _ = response.push_str("Button States:\r\n");
+
+                // Read button states (buttons are active low)
+                if let (Some(ref btn1), Some(ref btn2), Some(ref btn3), Some(ref btn4)) =
+                    (&self.button1, &self.button2, &self.button3, &self.button4)
+                {
+                    let btn1_pressed = btn1.is_low();
+                    let btn2_pressed = btn2.is_low();
+                    let btn3_pressed = btn3.is_low();
+                    let btn4_pressed = btn4.is_low();
+
+                    let _ = response.push_str("  Button 1: ");
+                    let _ = response.push_str(if btn1_pressed { "pressed" } else { "released" });
+                    let _ = response.push_str("\r\n");
+
+                    let _ = response.push_str("  Button 2: ");
+                    let _ = response.push_str(if btn2_pressed { "pressed" } else { "released" });
+                    let _ = response.push_str("\r\n");
+
+                    let _ = response.push_str("  Button 3: ");
+                    let _ = response.push_str(if btn3_pressed { "pressed" } else { "released" });
+                    let _ = response.push_str("\r\n");
+
+                    let _ = response.push_str("  Button 4: ");
+                    let _ = response.push_str(if btn4_pressed { "pressed" } else { "released" });
+                } else {
+                    let _ = response.push_str("  Buttons not configured");
+                }
             }
             CliCommand::Temp => {
                 info!("CLI: Temperature requested");
