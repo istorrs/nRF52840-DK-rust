@@ -277,9 +277,7 @@ impl<'d> Terminal<'d> {
         self.write_line("  button      - Show button states")
             .await?;
         self.write_line("  temp        - Show temperature").await?;
-        self.write_line("  bt_on       - Enable BLE").await?;
-        self.write_line("  bt_off      - Disable BLE").await?;
-        self.write_line("  bt_scan     - Scan for BLE devices")
+        self.write_line("  bt_scan [time] - Scan for BLE devices (default 10s)")
             .await?;
         self.write_line("").await?;
         self.write_line("Use TAB to autocomplete commands").await?;

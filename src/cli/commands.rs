@@ -4,6 +4,7 @@ use defmt::info;
 use embassy_nrf::gpio::Output;
 use embassy_time::Instant;
 use heapless::String;
+use nrf_softdevice::ble::central;
 use nrf_softdevice::Softdevice;
 
 pub struct CommandHandler<'d> {
@@ -45,7 +46,7 @@ impl<'d> CommandHandler<'d> {
     pub async fn execute_command(
         &mut self,
         command: CliCommand,
-    ) -> Result<heapless::String<128>, CliError> {
+    ) -> Result<heapless::String<256>, CliError> {
         let mut response = heapless::String::new();
 
         match command {
@@ -187,20 +188,51 @@ impl<'d> CommandHandler<'d> {
                     }
                 }
             }
-            CliCommand::BtOn => {
-                info!("CLI: BLE enable requested");
-                let _ = response.push_str("BLE enable not implemented yet");
-                // TODO: Send command to BLE task
-            }
-            CliCommand::BtOff => {
-                info!("CLI: BLE disable requested");
-                let _ = response.push_str("BLE disable not implemented yet");
-                // TODO: Send command to BLE task
-            }
-            CliCommand::BtScan => {
-                info!("CLI: BLE scan requested");
-                let _ = response.push_str("BLE scan not implemented yet");
-                // TODO: Trigger BLE scan
+            CliCommand::BtScan(scan_time) => {
+                let scan_duration = scan_time.unwrap_or(10); // Default 10 seconds
+                info!("CLI: BLE scan requested for {} seconds", scan_duration);
+                match self.perform_scan(scan_duration).await {
+                    Ok(scan_results) => {
+                        let _ = response.push_str("BLE scan completed (");
+                        let _ = write_num(&mut response, scan_duration as u64);
+                        let _ = response.push_str("s) - found ");
+                        let _ = write_num(&mut response, scan_results.len() as u64);
+                        let _ = response.push_str(" devices:\r\n");
+
+                        // Display all devices that fit in the buffer
+                        let mut displayed_count = 0;
+                        for addr in scan_results.iter() {
+                            // Calculate the exact space needed for this address line: "  aa:bb:cc:dd:ee:ff\r\n" = 21 chars
+                            let line_length = 21;
+
+                            // Check if this line would fit
+                            if response.len() + line_length > response.capacity() {
+                                break;
+                            }
+
+                            // Add the line since it fits
+                            let _ = response.push_str("  ");
+                            for (i, byte) in addr.iter().enumerate() {
+                                if i > 0 {
+                                    let _ = response.push(':');
+                                }
+                                let _ = write_hex_byte(&mut response, *byte);
+                            }
+                            let _ = response.push_str("\r\n");
+                            displayed_count += 1;
+                        }
+
+                        let remaining = scan_results.len() - displayed_count;
+                        if remaining > 0 {
+                            let _ = response.push_str("  ... and ");
+                            let _ = write_num(&mut response, remaining as u64);
+                            let _ = response.push_str(" more\r\n");
+                        }
+                    }
+                    Err(_) => {
+                        let _ = response.push_str("BLE scan failed");
+                    }
+                }
             }
             CliCommand::Unknown(cmd) => {
                 info!("CLI: Unknown command: {}", cmd.as_str());
@@ -228,10 +260,74 @@ impl<'d> CommandHandler<'d> {
             Err(CliError::UartError) // No SoftDevice available
         }
     }
+
+    async fn perform_scan(&self, scan_time: u16) -> Result<heapless::Vec<[u8; 6], 10>, CliError> {
+        if let Some(softdevice) = self.softdevice {
+            info!("Starting BLE scan for {} seconds", scan_time);
+            let start_time = embassy_time::Instant::now();
+
+            let config = central::ScanConfig {
+                timeout: scan_time * 100, // Convert seconds to 10ms units (1 sec = 100 * 10ms)
+                ..Default::default()
+            };
+
+            let mut discovered_devices = heapless::Vec::<[u8; 6], 10>::new();
+
+            let result = central::scan(softdevice, &config, |params| {
+                let addr = params.peer_addr.addr;
+
+                // Check if we've already seen this device
+                if !discovered_devices.contains(&addr) {
+                    if discovered_devices.push(addr).is_ok() {
+                        info!(
+                            "BLE Device found: addr={:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                            addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
+                        );
+                        None::<()> // Continue scanning
+                    } else {
+                        info!("Device buffer full (10 devices), stopping scan...");
+                        Some(()) // Stop scanning - buffer is full
+                    }
+                } else {
+                    None::<()> // Continue scanning - duplicate device
+                }
+            })
+            .await;
+
+            let end_time = embassy_time::Instant::now();
+            let actual_duration = end_time - start_time;
+            info!("BLE scan finished after {}ms", actual_duration.as_millis());
+
+            match result {
+                Ok(_) => {
+                    info!(
+                        "BLE scan completed successfully with {} unique devices",
+                        discovered_devices.len()
+                    );
+                    Ok(discovered_devices)
+                }
+                Err(central::ScanError::Timeout) => {
+                    // Timeout is expected and normal - treat as success
+                    info!(
+                        "BLE scan completed (timeout) with {} unique devices",
+                        discovered_devices.len()
+                    );
+                    Ok(discovered_devices)
+                }
+                Err(e) => {
+                    info!("BLE scan error: {:?}", e);
+                    Err(CliError::UartError)
+                }
+            }
+        } else {
+            info!("No SoftDevice available for scanning");
+            Err(CliError::UartError)
+        }
+    }
 }
 
 // Helper function to write numbers to string without using std::fmt
-fn write_num(s: &mut String<128>, mut num: u64) -> Result<(), ()> {
+fn write_num(s: &mut String<256>, mut num: u64) -> Result<(), ()> {
     if num == 0 {
         return s.push('0').map_err(|_| ());
     }
@@ -245,6 +341,18 @@ fn write_num(s: &mut String<128>, mut num: u64) -> Result<(), ()> {
     for &digit in digits.iter().rev() {
         s.push((b'0' + digit) as char).map_err(|_| ())?;
     }
+
+    Ok(())
+}
+
+// Helper function to write hex byte to string
+fn write_hex_byte(s: &mut String<256>, byte: u8) -> Result<(), ()> {
+    let hex_chars = b"0123456789abcdef";
+    let high = (byte >> 4) & 0x0f;
+    let low = byte & 0x0f;
+
+    s.push(hex_chars[high as usize] as char).map_err(|_| ())?;
+    s.push(hex_chars[low as usize] as char).map_err(|_| ())?;
 
     Ok(())
 }

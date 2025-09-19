@@ -23,9 +23,7 @@ pub enum CliCommand {
     LedOff(u8),
     Button,
     Temp,
-    BtOn,
-    BtOff,
-    BtScan,
+    BtScan(Option<u16>), // Optional scan time in seconds
     Empty,
     Unknown(heapless::String<32>),
 }
