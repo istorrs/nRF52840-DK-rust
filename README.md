@@ -79,6 +79,12 @@ make setup-ble          # One-time SoftDevice setup
 make flash-ble-scan
 ```
 
+**CLI interface app**:
+```bash
+make setup-ble          # One-time SoftDevice setup
+make flash-cli
+```
+
 **SoftDevice-compatible GPIO app**:
 ```bash
 make flash-gpio-sd
@@ -86,7 +92,7 @@ make flash-gpio-sd
 
 5. **Start debugging with RTT logs**:
 ```bash
-make debug-gpio         # or: make debug-ble, make debug-ble-scan
+make debug-gpio         # or: make debug-ble, make debug-ble-scan, make debug-cli
 ```
 
 ## 🎯 Multiple Board Support
@@ -143,10 +149,16 @@ nRF52840-DK-rust/
 ├── src/
 │   ├── main.rs              # GPIO-only app (default)
 │   ├── gpio_tasks.rs        # Shared GPIO task implementations
+│   ├── cli/                 # CLI interface modules
+│   │   ├── mod.rs           # CLI module definitions
+│   │   ├── terminal.rs      # Terminal I/O handling
+│   │   ├── parser.rs        # Command parsing and autocompletion
+│   │   └── commands.rs      # Command execution handlers
 │   └── bin/
 │       ├── gpio_app.rs      # SoftDevice-compatible GPIO app
 │       ├── ble_gpio.rs      # BLE + GPIO combined app
-│       └── ble_scan.rs      # BLE scanner app
+│       ├── ble_scan.rs      # BLE scanner app
+│       └── cli_app.rs       # CLI interface app
 ├── .cargo/config.toml       # Cargo configuration for nRF52840
 ├── Cargo.toml              # Dependencies (Embassy, nrf-softdevice)
 ├── memory-*.x              # Memory layouts for different configurations
@@ -186,6 +198,15 @@ nRF52840-DK-rust/
 - **Memory**: Uses SoftDevice memory layout
 - **Requires**: SoftDevice S140 v7.3.0 flashed first
 - **Build**: `make build-ble-scan`
+
+### 5. CLI Interface App (`src/bin/cli_app.rs`)
+- **Purpose**: Interactive command-line interface via UART
+- **Features**: Command autocompletion, BLE control, GPIO control, system status
+- **Interface**: UART1 (pins P1.14/P1.15) at 115200 baud
+- **Commands**: help, version, status, uptime, clear, reset, echo, led_on/off, button, temp, bt_on, bt_off, bt_scan
+- **Memory**: Uses SoftDevice memory layout (required for BLE commands)
+- **Requires**: SoftDevice S140 v7.3.0 flashed first
+- **Build**: `make build-cli`
 
 ## 🎮 Hardware Mapping (nRF52840-DK)
 
@@ -257,6 +278,10 @@ make debug-ble           # Debug BLE + GPIO app
 make build-ble-scan      # Build BLE scanner app
 make flash-ble-scan      # Flash BLE scanner app
 make debug-ble-scan      # Debug BLE scanner app
+
+make build-cli           # Build CLI interface app
+make flash-cli           # Flash CLI interface app
+make debug-cli           # Debug CLI interface app
 
 # Utility commands
 make build-all           # Build all applications

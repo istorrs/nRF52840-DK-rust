@@ -32,6 +32,9 @@ heapless = { version = "0.8", default-features = false }
 nrf-softdevice = { version = "0.1", features = ["defmt", "ble-peripheral", "ble-central", "ble-gatt-server", "s140", "nrf52840", "critical-section-impl"], optional = true }
 nrf-softdevice-s140 = { version = "0.1", optional = true }
 
+# USB support for CLI app
+embassy-usb = { version = "0.3", features = ["defmt"], optional = true }
+
 [profile.release]
 codegen-units = 1
 debug = 2
@@ -59,3 +62,5 @@ default = ["cortex-m/critical-section-single-core"]
 gpio = ["cortex-m/critical-section-single-core"]
 # BLE feature for the BLE binary (nrf-softdevice provides critical-section-impl)
 ble = ["dep:nrf-softdevice", "dep:nrf-softdevice-s140"]
+# CLI feature enables USB CDC + BLE functionality
+cli = ["dep:embassy-usb", "ble"]

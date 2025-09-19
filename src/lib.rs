@@ -7,3 +7,7 @@
 
 // pub mod ble_task;  // Disabled for GPIO-only mode
 pub mod gpio_tasks;
+
+// CLI interface modules (conditional compilation for cli feature)
+#[cfg(feature = "cli")]
+pub mod cli;

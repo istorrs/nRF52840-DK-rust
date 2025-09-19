@@ -15,9 +15,9 @@ PROBE_SELECTOR = $(shell probe-rs list 2>/dev/null | grep "^\[$(BOARD)\]:" | sed
 PROBE_ARG = $(if $(PROBE_SELECTOR),--probe $(PROBE_SELECTOR),$(if $(filter 0,$(BOARDS_DETECTED)),$(error No boards detected. Please connect an nRF52840-DK and run 'probe-rs list'),$(error Board $(BOARD) not found. Available boards: 0-$(shell echo $$(($(BOARDS_DETECTED)-1))). Run 'probe-rs list' for details)))
 
 .PHONY: all build flash debug clean setup setup-probe-rs setup-ble help format check test-configs release-test list-boards
-.PHONY: build-gpio build-gpio-sd build-ble build-ble-scan
-.PHONY: flash-gpio flash-gpio-sd flash-ble flash-ble-scan
-.PHONY: debug-gpio debug-gpio-sd debug-ble debug-ble-scan
+.PHONY: build-gpio build-gpio-sd build-ble build-ble-scan build-cli
+.PHONY: flash-gpio flash-gpio-sd flash-ble flash-ble-scan flash-cli
+.PHONY: debug-gpio debug-gpio-sd debug-ble debug-ble-scan debug-cli
 
 # Default target - GPIO-only app
 all: build-gpio
@@ -44,6 +44,11 @@ build-ble-scan:
 	@echo "🔧 Building BLE scanner app..."
 	cargo build --bin ble_scan --no-default-features --features ble
 
+# Build CLI app
+build-cli:
+	@echo "🔧 Building CLI app..."
+	cargo build --bin cli_app --no-default-features --features cli
+
 # Build all apps
 build-all:
 	@echo "🔧 Building all apps..."
@@ -51,6 +56,7 @@ build-all:
 	@make build-gpio-sd
 	@make build-ble
 	@make build-ble-scan
+	@make build-cli
 
 # === Flash Targets ===
 
@@ -74,6 +80,11 @@ flash-ble-scan: build-ble-scan
 	@echo "📱 Flashing BLE scanner app to board $(BOARD) (preserving SoftDevice)..."
 	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan
 
+# Flash CLI app (preserves SoftDevice)
+flash-cli: build-cli
+	@echo "📱 Flashing CLI app to board $(BOARD) (preserving SoftDevice)..."
+	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/cli_app
+
 # === Debug Targets ===
 
 # Debug GPIO-only app
@@ -95,6 +106,11 @@ debug-ble: flash-ble
 debug-ble-scan: flash-ble-scan
 	@echo "🐛 Starting debug session (BLE scanner) on board $(BOARD)..."
 	probe-rs attach $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan
+
+# Debug CLI app (preserves SoftDevice)
+debug-cli: flash-cli
+	@echo "🐛 Starting debug session (CLI app) on board $(BOARD)..."
+	probe-rs attach $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/cli_app
 
 # === Legacy Targets (for backward compatibility) ===
 
@@ -273,17 +289,20 @@ help:
 	@echo "  make build-gpio-sd   - Build SoftDevice-compatible GPIO app"
 	@echo "  make build-ble       - Build BLE + GPIO combined app"
 	@echo "  make build-ble-scan  - Build BLE scanner app"
+	@echo "  make build-cli       - Build CLI app with USB CDC interface"
 	@echo "  make build-all       - Build all apps"
 	@echo ""
 	@echo "  make flash-gpio      - Flash GPIO-only app"
 	@echo "  make flash-gpio-sd   - Flash SoftDevice-compatible GPIO app"
 	@echo "  make flash-ble       - Flash BLE + GPIO combined app"
 	@echo "  make flash-ble-scan  - Flash BLE scanner app"
+	@echo "  make flash-cli       - Flash CLI app"
 	@echo ""
 	@echo "  make debug-gpio      - Debug GPIO-only app"
 	@echo "  make debug-gpio-sd   - Debug SoftDevice-compatible GPIO app"
 	@echo "  make debug-ble       - Debug BLE + GPIO combined app"
 	@echo "  make debug-ble-scan  - Debug BLE scanner app"
+	@echo "  make debug-cli       - Debug CLI app"
 	@echo ""
 	@echo "=== Legacy Commands (default to GPIO-only) ==="
 	@echo "  make build           - Build GPIO-only app (default)"
