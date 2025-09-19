@@ -204,10 +204,34 @@ nRF52840-DK-rust/
 - **Features**: Command autocompletion, command history (↑/↓ arrows), BLE control, GPIO control, system status
 - **Interface**: UART1 (pins P1.14/P1.15) at 115200 baud
 - **LED Indicators**: LED1 (RX activity), LED2 (TX activity)
-- **Commands**: help, version, status, uptime, clear, reset, echo, led_on/off, button, temp, bt_on, bt_off, bt_scan
+- **Commands**: help, version, status, uptime, clear, reset, echo, led_on/off, button, temp, bt_scan [time]
 - **Memory**: Uses SoftDevice memory layout (required for BLE commands)
 - **Requires**: SoftDevice S140 v7.3.0 flashed first
 - **Build**: `make build-cli`
+
+#### CLI Commands Reference
+Available commands in the CLI interface:
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `help` | Show all available commands | `help` |
+| `version` | Display firmware version | `version` |
+| `status` | Show system status (firmware, UART, LEDs) | `status` |
+| `uptime` | Display system uptime | `uptime` |
+| `clear` | Clear terminal screen | `clear` |
+| `reset` | Reset the system | `reset` |
+| `echo <text>` | Echo back the provided text | `echo Hello World` |
+| `led_on <3\|4>` | Turn on LED 3 or 4 | `led_on 3` |
+| `led_off <3\|4>` | Turn off LED 3 or 4 | `led_off 4` |
+| `button` | Show current state of all 4 buttons | `button` |
+| `temp` | Read temperature sensor via SoftDevice | `temp` |
+| `bt_scan [time]` | Scan for BLE devices (1-60s, default 10s) | `bt_scan 15` |
+
+**Features**:
+- **Tab completion**: Type partial command and press TAB
+- **Command history**: Use ↑/↓ arrows to navigate command history
+- **Line editing**: Use ←/→ arrows to edit current line
+- **Real-time feedback**: LED1 flashes on UART RX, LED2 on TX
 
 ## 🎮 Hardware Mapping (nRF52840-DK)
 
@@ -222,10 +246,14 @@ nRF52840-DK-rust/
 - **CLI app**: LED1=UART RX, LED2=UART TX, LED3/4=available for commands
 
 ### Buttons (Active Low, Pull-up)
-- **BUTTON1** (P0.11): Controls LED2
-- **BUTTON2** (P0.12): Available for custom use
-- **BUTTON3** (P0.24): Available for custom use
-- **BUTTON4** (P0.25): Available for custom use
+- **BUTTON1** (P0.11): Controls LED2 in GPIO apps / Available for CLI commands
+- **BUTTON2** (P0.12): Available for custom use / CLI button command
+- **BUTTON3** (P0.24): Available for custom use / CLI button command
+- **BUTTON4** (P0.25): Available for custom use / CLI button command
+
+**Note**: Button usage depends on the application:
+- **GPIO apps**: BUTTON1 controls LED2, others available for custom use
+- **CLI app**: All buttons readable via `button` command (shows pressed/released state)
 
 ## 📱 BLE Functionality
 
