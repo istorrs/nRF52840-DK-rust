@@ -26,6 +26,7 @@ pub enum CliCommand {
     BtOn,
     BtOff,
     BtScan,
+    Empty,
     Unknown(heapless::String<32>),
 }
 

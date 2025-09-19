@@ -109,10 +109,7 @@ impl<'d> Terminal<'d> {
                 b'\x08' | b'\x7f' => {
                     // Backspace
                     if !self.line_buffer.is_empty() && self.cursor_pos > 0 {
-                        self.line_buffer.pop();
-                        self.cursor_pos -= 1;
-                        // Send backspace sequence: backspace + space + backspace
-                        self.write_str("\x08 \x08").await?;
+                        self.delete_char_before_cursor().await?;
                     }
                     Ok(None)
                 }
@@ -123,16 +120,10 @@ impl<'d> Terminal<'d> {
                 }
                 0x20..=0x7E => {
                     // Printable ASCII character
-                    if self.line_buffer.len() < CLI_BUFFER_SIZE - 1
-                        && self.line_buffer.push(ch as char).is_ok()
-                    {
-                        self.cursor_pos += 1;
-                        // Echo the character
-                        let echo = [ch];
-                        self.uart
-                            .write(&echo)
-                            .await
-                            .map_err(|_| CliError::UartError)?;
+                    if self.line_buffer.len() < CLI_BUFFER_SIZE - 1 {
+                        if let Ok(()) = self.insert_char_at_cursor(ch as char).await {
+                            // Character inserted successfully
+                        }
                     }
                     Ok(None)
                 }
@@ -166,6 +157,18 @@ impl<'d> Terminal<'d> {
                     b'B' => {
                         // Down arrow - next command in history
                         self.handle_history_down().await?;
+                        self.escape_state = EscapeState::Normal;
+                        Ok(None)
+                    }
+                    b'C' => {
+                        // Right arrow - move cursor right
+                        self.handle_cursor_right().await?;
+                        self.escape_state = EscapeState::Normal;
+                        Ok(None)
+                    }
+                    b'D' => {
+                        // Left arrow - move cursor left
+                        self.handle_cursor_left().await?;
                         self.escape_state = EscapeState::Normal;
                         Ok(None)
                     }
@@ -282,6 +285,8 @@ impl<'d> Terminal<'d> {
         self.write_line("Use TAB to autocomplete commands").await?;
         self.write_line("Use UP/DOWN arrows to navigate command history")
             .await?;
+        self.write_line("Use LEFT/RIGHT arrows to move cursor and edit")
+            .await?;
         Ok(())
     }
 
@@ -349,5 +354,160 @@ impl<'d> Terminal<'d> {
 
         // Display new line
         self.write_str(new_line).await
+    }
+
+    async fn handle_cursor_right(&mut self) -> Result<(), CliError> {
+        if self.cursor_pos < self.line_buffer.len() {
+            self.cursor_pos += 1;
+            // Send ANSI escape sequence to move cursor right
+            self.write_str("\x1b[C").await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_cursor_left(&mut self) -> Result<(), CliError> {
+        if self.cursor_pos > 0 {
+            self.cursor_pos -= 1;
+            // Send ANSI escape sequence to move cursor left
+            self.write_str("\x1b[D").await?;
+        }
+        Ok(())
+    }
+
+    async fn insert_char_at_cursor(&mut self, ch: char) -> Result<(), CliError> {
+        if self.cursor_pos == self.line_buffer.len() {
+            // Simple case: inserting at end
+            if self.line_buffer.push(ch).is_ok() {
+                self.cursor_pos += 1;
+                // Echo the character
+                let echo = [ch as u8];
+                self.uart
+                    .write(&echo)
+                    .await
+                    .map_err(|_| CliError::UartError)?;
+            }
+        } else {
+            // Complex case: inserting in middle - need to rebuild string
+            let mut new_buffer = String::new();
+
+            // Copy characters before cursor
+            for (i, existing_ch) in self.line_buffer.chars().enumerate() {
+                if i == self.cursor_pos {
+                    // Insert new character at cursor position
+                    if new_buffer.push(ch).is_err() {
+                        return Err(CliError::BufferFull);
+                    }
+                }
+                if new_buffer.push(existing_ch).is_err() {
+                    return Err(CliError::BufferFull);
+                }
+            }
+
+            // If cursor is at the end, we still need to add the character
+            #[allow(clippy::collapsible_if)]
+            if self.cursor_pos == self.line_buffer.chars().count() {
+                if new_buffer.push(ch).is_err() {
+                    return Err(CliError::BufferFull);
+                }
+            }
+
+            // Replace the buffer
+            self.line_buffer = new_buffer;
+            self.cursor_pos += 1;
+
+            // Redraw from cursor position to end of line
+            self.redraw_line_from_cursor().await?;
+        }
+        Ok(())
+    }
+
+    async fn redraw_line_from_cursor(&mut self) -> Result<(), CliError> {
+        // Save current cursor position
+        let saved_cursor = self.cursor_pos;
+
+        // Get the part of the line from current cursor to end
+        let chars_to_redraw: heapless::Vec<char, CLI_BUFFER_SIZE> =
+            self.line_buffer.chars().skip(saved_cursor - 1).collect();
+
+        // Write the characters from cursor position onward
+        for ch in chars_to_redraw.iter() {
+            let echo = [*ch as u8];
+            self.uart
+                .write(&echo)
+                .await
+                .map_err(|_| CliError::UartError)?;
+        }
+
+        // Move cursor back to correct position
+        let chars_written = chars_to_redraw.len();
+        if chars_written > 1 {
+            // Move cursor back (chars_written - 1) positions
+            for _ in 1..chars_written {
+                self.write_str("\x1b[D").await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn delete_char_before_cursor(&mut self) -> Result<(), CliError> {
+        if self.cursor_pos == self.line_buffer.len() {
+            // Simple case: deleting from end
+            self.line_buffer.pop();
+            self.cursor_pos -= 1;
+            // Send backspace sequence: backspace + space + backspace
+            self.write_str("\x08 \x08").await?;
+        } else {
+            // Complex case: deleting from middle - need to rebuild string
+            let mut new_buffer = String::new();
+
+            // Copy all characters except the one before cursor
+            for (i, ch) in self.line_buffer.chars().enumerate() {
+                if i != self.cursor_pos - 1 {
+                    // Skip the character before cursor position
+                    if new_buffer.push(ch).is_err() {
+                        return Err(CliError::BufferFull);
+                    }
+                }
+            }
+
+            // Replace the buffer
+            self.line_buffer = new_buffer;
+            self.cursor_pos -= 1;
+
+            // Move cursor left, then redraw from current position to end
+            self.write_str("\x1b[D").await?; // Move cursor left
+            self.redraw_line_from_cursor_with_clear().await?;
+        }
+        Ok(())
+    }
+
+    async fn redraw_line_from_cursor_with_clear(&mut self) -> Result<(), CliError> {
+        // Save current cursor position
+        let saved_cursor = self.cursor_pos;
+
+        // Get the part of the line from current cursor to end
+        let chars_to_redraw: heapless::Vec<char, CLI_BUFFER_SIZE> =
+            self.line_buffer.chars().skip(saved_cursor).collect();
+
+        // Write the characters from cursor position onward
+        for ch in chars_to_redraw.iter() {
+            let echo = [*ch as u8];
+            self.uart
+                .write(&echo)
+                .await
+                .map_err(|_| CliError::UartError)?;
+        }
+
+        // Clear the extra character that was there before
+        self.write_str(" ").await?;
+
+        // Move cursor back to correct position
+        let total_chars_written = chars_to_redraw.len() + 1; // +1 for the space
+        for _ in 0..total_chars_written {
+            self.write_str("\x1b[D").await?;
+        }
+
+        Ok(())
     }
 }

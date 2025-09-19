@@ -37,7 +37,7 @@ impl CommandParser {
     pub fn parse_command(input: &str) -> CliCommand {
         let trimmed = input.trim();
         if trimmed.is_empty() {
-            return CliCommand::Unknown(String::new());
+            return CliCommand::Empty;
         }
 
         let mut parts = trimmed.split_whitespace();

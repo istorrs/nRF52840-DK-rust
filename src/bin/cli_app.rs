@@ -83,6 +83,10 @@ async fn main(spawner: Spawner) {
     // Configure LED2 (P0.14) for UART TX activity indication
     let led2 = Output::new(p.P0_14, Level::High, OutputDrive::Standard);
 
+    // Configure LED3 (P0.15) and LED4 (P0.16) for CLI commands
+    let led3 = Output::new(p.P0_15, Level::High, OutputDrive::Standard);
+    let led4 = Output::new(p.P0_16, Level::High, OutputDrive::Standard);
+
     // Configure UART for CLI
     let mut uart_config = uarte::Config::default();
     uart_config.parity = uarte::Parity::EXCLUDED;
@@ -91,9 +95,9 @@ async fn main(spawner: Spawner) {
     let uarte = Uarte::new(p.UARTE1, Irqs, p.P1_14, p.P1_15, uart_config);
     info!("✅ Peripherals configured");
 
-    // Initialize CLI components with TX LED
+    // Initialize CLI components with LEDs
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
-    let mut command_handler = CommandHandler::new();
+    let mut command_handler = CommandHandler::new().with_leds(led3, led4);
 
     // Send welcome message
     let _ = terminal.write_line("").await;
@@ -134,7 +138,10 @@ async fn main(spawner: Spawner) {
 
                         match command_handler.execute_command(command).await {
                             Ok(response) => {
-                                let _ = terminal.write_line(&response).await;
+                                // Only write response if it's not empty
+                                if !response.is_empty() {
+                                    let _ = terminal.write_line(&response).await;
+                                }
                             }
                             Err(CliError::InvalidCommand) => {
                                 let _ = terminal

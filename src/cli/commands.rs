@@ -1,27 +1,36 @@
 use super::{CliCommand, CliError};
 use defmt::info;
+use embassy_nrf::gpio::Output;
 use embassy_time::Instant;
 use heapless::String;
 
-pub struct CommandHandler {
-    ble_enabled: bool,
+pub struct CommandHandler<'d> {
     led_states: [bool; 4],
     start_time: Instant,
+    led3: Option<Output<'d>>,
+    led4: Option<Output<'d>>,
 }
 
-impl Default for CommandHandler {
+impl<'d> Default for CommandHandler<'d> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CommandHandler {
+impl<'d> CommandHandler<'d> {
     pub fn new() -> Self {
         Self {
-            ble_enabled: false,
             led_states: [false; 4],
             start_time: Instant::now(),
+            led3: None,
+            led4: None,
         }
+    }
+
+    pub fn with_leds(mut self, led3: Output<'d>, led4: Output<'d>) -> Self {
+        self.led3 = Some(led3);
+        self.led4 = Some(led4);
+        self
     }
 
     pub async fn execute_command(
@@ -31,6 +40,10 @@ impl CommandHandler {
         let mut response = heapless::String::new();
 
         match command {
+            CliCommand::Empty => {
+                // Empty command - just return empty response (no error)
+                // This will result in just showing a new prompt
+            }
             CliCommand::Help => {
                 // Help is handled in terminal.rs
                 let _ = response.push_str("Help displayed");
@@ -43,13 +56,8 @@ impl CommandHandler {
                 info!("CLI: Status requested");
                 let _ = response.push_str("System Status:\r\n");
                 let _ = response.push_str("  Firmware: nRF52840-DK CLI v1.0.0\r\n");
-                let _ = response.push_str("  BLE: ");
-                let _ = response.push_str(if self.ble_enabled {
-                    "enabled"
-                } else {
-                    "disabled"
-                });
-                let _ = response.push_str("\r\n  LEDs: ");
+                let _ = response.push_str("  UART: 115200 baud on pins P1.14/P1.15\r\n");
+                let _ = response.push_str("  LEDs: ");
                 let _ = response.push_str("3:");
                 let _ = response.push_str(if self.led_states[2] { "on " } else { "off " });
                 let _ = response.push_str("4:");
@@ -96,7 +104,21 @@ impl CommandHandler {
                     let _ = response.push_str("LED ");
                     let _ = response.push((led_num + b'0') as char);
                     let _ = response.push_str(" turned on");
-                    // TODO: Send command to actual LED hardware
+
+                    // Actually control the LED hardware
+                    match led_num {
+                        3 => {
+                            if let Some(ref mut led) = self.led3 {
+                                led.set_low(); // LEDs are active low
+                            }
+                        }
+                        4 => {
+                            if let Some(ref mut led) = self.led4 {
+                                led.set_low(); // LEDs are active low
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             CliCommand::LedOff(led_num) => {
@@ -107,7 +129,21 @@ impl CommandHandler {
                     let _ = response.push_str("LED ");
                     let _ = response.push((led_num + b'0') as char);
                     let _ = response.push_str(" turned off");
-                    // TODO: Send command to actual LED hardware
+
+                    // Actually control the LED hardware
+                    match led_num {
+                        3 => {
+                            if let Some(ref mut led) = self.led3 {
+                                led.set_high(); // LEDs are active low
+                            }
+                        }
+                        4 => {
+                            if let Some(ref mut led) = self.led4 {
+                                led.set_high(); // LEDs are active low
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             CliCommand::Button => {
@@ -122,14 +158,12 @@ impl CommandHandler {
             }
             CliCommand::BtOn => {
                 info!("CLI: BLE enable requested");
-                self.ble_enabled = true;
-                let _ = response.push_str("BLE enabled");
+                let _ = response.push_str("BLE enable not implemented yet");
                 // TODO: Send command to BLE task
             }
             CliCommand::BtOff => {
                 info!("CLI: BLE disable requested");
-                self.ble_enabled = false;
-                let _ = response.push_str("BLE disabled");
+                let _ = response.push_str("BLE disable not implemented yet");
                 // TODO: Send command to BLE task
             }
             CliCommand::BtScan => {
