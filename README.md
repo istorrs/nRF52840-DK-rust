@@ -201,8 +201,9 @@ nRF52840-DK-rust/
 
 ### 5. CLI Interface App (`src/bin/cli_app.rs`)
 - **Purpose**: Interactive command-line interface via UART
-- **Features**: Command autocompletion, BLE control, GPIO control, system status
+- **Features**: Command autocompletion, command history (↑/↓ arrows), BLE control, GPIO control, system status
 - **Interface**: UART1 (pins P1.14/P1.15) at 115200 baud
+- **LED Indicators**: LED1 (RX activity), LED2 (TX activity)
 - **Commands**: help, version, status, uptime, clear, reset, echo, led_on/off, button, temp, bt_on, bt_off, bt_scan
 - **Memory**: Uses SoftDevice memory layout (required for BLE commands)
 - **Requires**: SoftDevice S140 v7.3.0 flashed first
@@ -211,10 +212,14 @@ nRF52840-DK-rust/
 ## 🎮 Hardware Mapping (nRF52840-DK)
 
 ### LEDs (Active Low)
-- **LED1** (P0.13): Heartbeat indicator
-- **LED2** (P0.14): Button press indicator
+- **LED1** (P0.13): Heartbeat indicator / CLI UART RX activity
+- **LED2** (P0.14): Button press indicator / CLI UART TX activity
 - **LED3** (P0.15): Pattern LED 1
 - **LED4** (P0.16): Pattern LED 2
+
+**Note**: LED usage depends on the application:
+- **GPIO apps**: LED1=heartbeat, LED2=button, LED3/4=patterns
+- **CLI app**: LED1=UART RX, LED2=UART TX, LED3/4=available for commands
 
 ### Buttons (Active Low, Pull-up)
 - **BUTTON1** (P0.11): Controls LED2

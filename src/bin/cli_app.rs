@@ -8,6 +8,7 @@ use embassy_nrf::{
     gpio::{Level, Output, OutputDrive},
     uarte::{self, Uarte},
 };
+use embassy_time::{Duration, Timer};
 use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
@@ -76,8 +77,11 @@ async fn main(spawner: Spawner) {
     // Configure peripherals AFTER SoftDevice is enabled
     info!("Configuring peripherals...");
 
-    // Configure LED1 for RX activity indication
+    // Configure LED1 (P0.13) for UART RX activity indication
     let mut led1 = Output::new(p.P0_13, Level::High, OutputDrive::Standard);
+
+    // Configure LED2 (P0.14) for UART TX activity indication
+    let led2 = Output::new(p.P0_14, Level::High, OutputDrive::Standard);
 
     // Configure UART for CLI
     let mut uart_config = uarte::Config::default();
@@ -87,8 +91,8 @@ async fn main(spawner: Spawner) {
     let uarte = Uarte::new(p.UARTE1, Irqs, p.P1_14, p.P1_15, uart_config);
     info!("✅ Peripherals configured");
 
-    // Initialize CLI components
-    let mut terminal = Terminal::new(uarte);
+    // Initialize CLI components with TX LED
+    let mut terminal = Terminal::new(uarte).with_tx_led(led2);
     let mut command_handler = CommandHandler::new();
 
     // Send welcome message
@@ -106,13 +110,15 @@ async fn main(spawner: Spawner) {
     loop {
         let mut single_byte = [0u8; 1];
 
-        // Flash LED1 on RX activity
-        led1.set_low();
-
         match terminal.uart.read(&mut single_byte).await {
             Ok(_) => {
-                led1.set_high();
+                // Flash LED1 briefly on UART RX activity
+                led1.set_low();
                 let ch = single_byte[0];
+
+                // Small delay to make flash visible, then turn off RX LED
+                Timer::after(Duration::from_millis(10)).await;
+                led1.set_high();
 
                 // Handle character and check if we got a complete command
                 match terminal.handle_char(ch).await {
@@ -166,7 +172,7 @@ async fn main(spawner: Spawner) {
                 }
             }
             Err(_) => {
-                led1.set_high();
+                // No LED activity on UART read error (no data received)
                 // Continue on error
             }
         }

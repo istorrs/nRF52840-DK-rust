@@ -1,23 +1,51 @@
 use super::{parser::CommandParser, CliError, CLI_BUFFER_SIZE};
-use embassy_nrf::uarte::Uarte;
-use heapless::String;
+use embassy_nrf::{gpio::Output, uarte::Uarte};
+use embassy_time::{Duration, Timer};
+use heapless::{String, Vec};
+
+const HISTORY_SIZE: usize = 10;
 
 pub struct Terminal<'d> {
     pub uart: Uarte<'d, embassy_nrf::peripherals::UARTE1>,
+    tx_led: Option<Output<'d>>,
     line_buffer: String<CLI_BUFFER_SIZE>,
     cursor_pos: usize,
+    command_history: Vec<String<CLI_BUFFER_SIZE>, HISTORY_SIZE>,
+    history_index: Option<usize>,
+    escape_state: EscapeState,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum EscapeState {
+    Normal,
+    Escape,
+    Csi,
 }
 
 impl<'d> Terminal<'d> {
     pub fn new(uart: Uarte<'d, embassy_nrf::peripherals::UARTE1>) -> Self {
         Self {
             uart,
+            tx_led: None,
             line_buffer: String::new(),
             cursor_pos: 0,
+            command_history: Vec::new(),
+            history_index: None,
+            escape_state: EscapeState::Normal,
         }
     }
 
+    pub fn with_tx_led(mut self, tx_led: Output<'d>) -> Self {
+        self.tx_led = Some(tx_led);
+        self
+    }
+
     pub async fn write_str(&mut self, s: &str) -> Result<(), CliError> {
+        // Flash TX LED during transmission if available
+        if let Some(ref mut led) = self.tx_led {
+            led.set_low(); // Turn on LED (active low)
+        }
+
         // Send each character individually to debug transmission
         for &byte in s.as_bytes() {
             self.uart
@@ -25,6 +53,13 @@ impl<'d> Terminal<'d> {
                 .await
                 .map_err(|_| CliError::UartError)?;
         }
+
+        // Small delay to make TX flash visible, then turn off TX LED
+        if let Some(ref mut led) = self.tx_led {
+            Timer::after(Duration::from_millis(10)).await;
+            led.set_high(); // Turn off LED (active low)
+        }
+
         Ok(())
     }
 
@@ -41,48 +76,105 @@ impl<'d> Terminal<'d> {
         &mut self,
         ch: u8,
     ) -> Result<Option<String<CLI_BUFFER_SIZE>>, CliError> {
-        match ch {
-            b'\r' | b'\n' => {
-                // Enter pressed - return the command
-                self.write_str("\r\n").await?;
-                let command = self.line_buffer.clone();
-                self.line_buffer.clear();
-                self.cursor_pos = 0;
-                Ok(Some(command))
-            }
-            b'\x08' | b'\x7f' => {
-                // Backspace
-                if !self.line_buffer.is_empty() && self.cursor_pos > 0 {
-                    self.line_buffer.pop();
-                    self.cursor_pos -= 1;
-                    // Send backspace sequence: backspace + space + backspace
-                    self.write_str("\x08 \x08").await?;
+        match self.escape_state {
+            EscapeState::Normal => match ch {
+                b'\r' | b'\n' => {
+                    // Enter pressed - return the command
+                    self.write_str("\r\n").await?;
+                    let command = self.line_buffer.clone();
+
+                    // Add to history if non-empty and different from last entry
+                    if !command.is_empty() {
+                        let should_add = self.command_history.is_empty()
+                            || self.command_history.last() != Some(&command);
+
+                        if should_add {
+                            if self.command_history.len() >= HISTORY_SIZE {
+                                self.command_history.remove(0);
+                            }
+                            let _ = self.command_history.push(command.clone());
+                        }
+                    }
+
+                    self.line_buffer.clear();
+                    self.cursor_pos = 0;
+                    self.history_index = None;
+                    Ok(Some(command))
                 }
-                Ok(None)
-            }
-            b'\t' => {
-                // Tab - autocomplete
-                self.handle_tab_completion().await?;
-                Ok(None)
-            }
-            0x20..=0x7E => {
-                // Printable ASCII character
-                if self.line_buffer.len() < CLI_BUFFER_SIZE - 1
-                    && self.line_buffer.push(ch as char).is_ok()
-                {
-                    self.cursor_pos += 1;
-                    // Echo the character
-                    let echo = [ch];
-                    self.uart
-                        .write(&echo)
-                        .await
-                        .map_err(|_| CliError::UartError)?;
+                b'\x1b' => {
+                    // ESC - start escape sequence
+                    self.escape_state = EscapeState::Escape;
+                    Ok(None)
                 }
-                Ok(None)
+                b'\x08' | b'\x7f' => {
+                    // Backspace
+                    if !self.line_buffer.is_empty() && self.cursor_pos > 0 {
+                        self.line_buffer.pop();
+                        self.cursor_pos -= 1;
+                        // Send backspace sequence: backspace + space + backspace
+                        self.write_str("\x08 \x08").await?;
+                    }
+                    Ok(None)
+                }
+                b'\t' => {
+                    // Tab - autocomplete
+                    self.handle_tab_completion().await?;
+                    Ok(None)
+                }
+                0x20..=0x7E => {
+                    // Printable ASCII character
+                    if self.line_buffer.len() < CLI_BUFFER_SIZE - 1
+                        && self.line_buffer.push(ch as char).is_ok()
+                    {
+                        self.cursor_pos += 1;
+                        // Echo the character
+                        let echo = [ch];
+                        self.uart
+                            .write(&echo)
+                            .await
+                            .map_err(|_| CliError::UartError)?;
+                    }
+                    Ok(None)
+                }
+                _ => {
+                    // Ignore other control characters
+                    Ok(None)
+                }
+            },
+            EscapeState::Escape => {
+                match ch {
+                    b'[' => {
+                        // ESC[ - Control Sequence Introducer
+                        self.escape_state = EscapeState::Csi;
+                        Ok(None)
+                    }
+                    _ => {
+                        // Unknown escape sequence, reset to normal
+                        self.escape_state = EscapeState::Normal;
+                        Ok(None)
+                    }
+                }
             }
-            _ => {
-                // Ignore other control characters for now
-                Ok(None)
+            EscapeState::Csi => {
+                match ch {
+                    b'A' => {
+                        // Up arrow - previous command in history
+                        self.handle_history_up().await?;
+                        self.escape_state = EscapeState::Normal;
+                        Ok(None)
+                    }
+                    b'B' => {
+                        // Down arrow - next command in history
+                        self.handle_history_down().await?;
+                        self.escape_state = EscapeState::Normal;
+                        Ok(None)
+                    }
+                    _ => {
+                        // Other CSI sequences, ignore for now
+                        self.escape_state = EscapeState::Normal;
+                        Ok(None)
+                    }
+                }
             }
         }
     }
@@ -188,6 +280,74 @@ impl<'d> Terminal<'d> {
             .await?;
         self.write_line("").await?;
         self.write_line("Use TAB to autocomplete commands").await?;
+        self.write_line("Use UP/DOWN arrows to navigate command history")
+            .await?;
         Ok(())
+    }
+
+    async fn handle_history_up(&mut self) -> Result<(), CliError> {
+        if self.command_history.is_empty() {
+            return Ok(());
+        }
+
+        let new_index = match self.history_index {
+            None => self.command_history.len() - 1,
+            Some(current) => {
+                if current > 0 {
+                    current - 1
+                } else {
+                    return Ok(()); // Already at oldest command
+                }
+            }
+        };
+
+        self.history_index = Some(new_index);
+        self.replace_current_line(&self.command_history[new_index].clone())
+            .await
+    }
+
+    async fn handle_history_down(&mut self) -> Result<(), CliError> {
+        let new_index = match self.history_index {
+            None => return Ok(()), // Not in history mode
+            Some(current) => {
+                if current < self.command_history.len() - 1 {
+                    Some(current + 1)
+                } else {
+                    None // Back to empty line
+                }
+            }
+        };
+
+        self.history_index = new_index;
+
+        match new_index {
+            Some(idx) => {
+                self.replace_current_line(&self.command_history[idx].clone())
+                    .await
+            }
+            None => {
+                // Clear line - back to empty
+                let empty_line = String::new();
+                self.replace_current_line(&empty_line).await
+            }
+        }
+    }
+
+    async fn replace_current_line(
+        &mut self,
+        new_line: &String<CLI_BUFFER_SIZE>,
+    ) -> Result<(), CliError> {
+        // Clear current line
+        for _ in 0..self.cursor_pos {
+            self.write_str("\x08 \x08").await?;
+        }
+
+        // Update buffer and cursor
+        self.line_buffer.clear();
+        let _ = self.line_buffer.push_str(new_line);
+        self.cursor_pos = new_line.len();
+
+        // Display new line
+        self.write_str(new_line).await
     }
 }
