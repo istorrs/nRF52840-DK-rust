@@ -23,7 +23,7 @@ pub enum CliCommand {
     LedOff(u8),
     Button,
     Temp,
-    BtScan(Option<u16>), // Optional scan time in seconds
+    BtScan(Option<u16>),   // Optional scan time in seconds
     MtuStart(Option<u16>), // Optional duration in seconds
     MtuStop,
     MtuStatus,

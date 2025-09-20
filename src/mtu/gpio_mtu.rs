@@ -1,20 +1,19 @@
 use super::config::MtuConfig;
 use super::error::{MtuError, MtuResult};
-use super::uart_framing::{UartFrame, extract_char_from_frame};
-use defmt::info;
-use embassy_sync::mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_time::{Duration, Instant, Timer};
-use embassy_nrf::gpio::{Input, Output};
-use heapless::String;
+use super::uart_framing::{extract_char_from_frame, UartFrame};
 use core::sync::atomic::{AtomicBool, Ordering};
+use defmt::info;
+use embassy_nrf::gpio::{Input, Output};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Instant, Timer};
+use heapless::String;
 
 pub struct GpioMtu {
     config: MtuConfig,
     running: AtomicBool,
     last_message: Mutex<ThreadModeRawMutex, Option<String<256>>>,
 }
-
 
 impl GpioMtu {
     pub fn new(config: MtuConfig) -> Self {
@@ -51,7 +50,12 @@ impl GpioMtu {
     }
 
     // Actual MTU operation using GPIO pins
-    pub async fn run_mtu_operation(&self, duration: Duration, clock_pin: &mut Output<'_>, data_pin: &Input<'_>) -> MtuResult<()> {
+    pub async fn run_mtu_operation(
+        &self,
+        duration: Duration,
+        clock_pin: &mut Output<'_>,
+        data_pin: &Input<'_>,
+    ) -> MtuResult<()> {
         info!("MTU: Starting GPIO-based operation for {:?}", duration);
 
         let start_time = Instant::now();
@@ -79,7 +83,7 @@ impl GpioMtu {
                             info!("MTU: Received character: {}", ch as char);
                             // Build up message string
                             let mut message = String::<256>::new();
-                            if message.push(ch as char).is_err() {
+                            if message.push(ch).is_err() {
                                 return Err(MtuError::FramingError);
                             }
 
@@ -109,7 +113,6 @@ impl GpioMtu {
 
     // Wake up the meter by sending clock pulses
     async fn wake_up_meter(&self, clock_pin: &mut Output<'_>) -> MtuResult<()> {
-
         // Send wake-up clock pulses (typically 10-20 pulses)
         for _ in 0..15 {
             clock_pin.set_high();
@@ -155,9 +158,8 @@ impl GpioMtu {
         }
 
         // Create frame with collected bits
-        let frame = UartFrame::new(frame_bits, self.config.framing.clone())?;
+        let frame = UartFrame::new(frame_bits, self.config.framing)?;
         info!("MTU: Frame received with {} bits", expected_bits);
         Ok(frame)
     }
-
 }

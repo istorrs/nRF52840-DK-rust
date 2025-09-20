@@ -13,8 +13,8 @@ use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
 // Import our CLI modules
-use nrf52840_dk_template::cli::{CliError, Terminal};
-use nrf52840_dk_template::meter::{MeterHandler, MeterConfig, MeterType};
+use nrf52840_dk_template::cli::Terminal;
+use nrf52840_dk_template::meter::{MeterConfig, MeterHandler};
 
 bind_interrupts!(struct Irqs {
     UARTE1 => embassy_nrf::uarte::InterruptHandler<embassy_nrf::peripherals::UARTE1>;

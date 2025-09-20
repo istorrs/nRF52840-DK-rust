@@ -1,14 +1,15 @@
 use super::{MeterCommand, MeterConfig, MeterType};
+use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
 use embassy_nrf::gpio::{Input, Output};
-use embassy_time::{Duration, Instant, Timer};
-use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 pub struct MeterHandler<'d> {
     config: Mutex<ThreadModeRawMutex, MeterConfig>,
+    #[allow(dead_code)]
     clock_pin: Mutex<ThreadModeRawMutex, Input<'d>>,
     data_pin: Mutex<ThreadModeRawMutex, Output<'d>>,
     activity_led: Mutex<ThreadModeRawMutex, Output<'d>>,
@@ -33,10 +34,7 @@ impl<'d> MeterHandler<'d> {
         }
     }
 
-    pub async fn execute_command(
-        &mut self,
-        command: MeterCommand,
-    ) -> Result<String<256>, ()> {
+    pub async fn execute_command(&mut self, command: MeterCommand) -> Result<String<256>, ()> {
         let mut response = String::new();
 
         match command {
@@ -67,7 +65,11 @@ impl<'d> MeterHandler<'d> {
                     }
                 }
                 let _ = response.push_str("\r\n  State: ");
-                let _ = response.push_str(if config.enabled { "Enabled" } else { "Disabled" });
+                let _ = response.push_str(if config.enabled {
+                    "Enabled"
+                } else {
+                    "Disabled"
+                });
                 let _ = response.push_str("\r\n  Message: ");
                 let _ = response.push_str(config.response_message.as_str());
                 let _ = response.push_str("\r\n  Pins: P0.02 (clock in), P0.03 (data out)");
@@ -144,7 +146,11 @@ impl<'d> MeterHandler<'d> {
 
                 // Simulate sending the response
                 info!("Meter: Test response simulation");
-                if let Err(_) = self.send_response(&config.response_message, &config.meter_type).await {
+                if self
+                    .send_response(&config.response_message, &config.meter_type)
+                    .await
+                    .is_err()
+                {
                     let _ = response.push_str("\r\n  Error: Failed to send test response");
                 } else {
                     let _ = response.push_str("\r\n  Test response sent successfully");
@@ -167,7 +173,11 @@ impl<'d> MeterHandler<'d> {
 
         // Send each character in the message
         for ch in message.chars() {
-            if let Err(_) = self.send_uart_char(&mut data_pin, ch as u8, meter_type).await {
+            if self
+                .send_uart_char(&mut data_pin, ch as u8, meter_type)
+                .await
+                .is_err()
+            {
                 activity_led.set_high();
                 return Err(());
             }
@@ -179,7 +189,12 @@ impl<'d> MeterHandler<'d> {
     }
 
     // Send a single character via GPIO UART at 9600 baud
-    async fn send_uart_char(&self, data_pin: &mut Output<'_>, byte: u8, meter_type: &MeterType) -> Result<(), ()> {
+    async fn send_uart_char(
+        &self,
+        data_pin: &mut Output<'_>,
+        byte: u8,
+        meter_type: &MeterType,
+    ) -> Result<(), ()> {
         let bit_duration = Duration::from_micros(104); // 9600 baud = ~104μs per bit
 
         // Build frame based on meter type

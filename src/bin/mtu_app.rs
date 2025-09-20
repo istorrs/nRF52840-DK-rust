@@ -123,9 +123,7 @@ async fn main(spawner: Spawner) {
     let _ = terminal
         .write_line("Use TAB for command autocompletion")
         .await;
-    let _ = terminal
-        .write_line("MTU Clock: P0.02 | Data: P0.03")
-        .await;
+    let _ = terminal.write_line("MTU Clock: P0.02 | Data: P0.03").await;
     let _ = terminal.print_prompt().await;
 
     // Main CLI loop

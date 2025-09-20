@@ -16,8 +16,21 @@ impl CommandParser {
 
     pub fn get_available_commands() -> &'static [&'static str] {
         &[
-            "help", "version", "status", "uptime", "clear", "reset", "echo", "led_on", "led_off",
-            "button", "temp", "bt_scan", "mtu_start", "mtu_stop", "mtu_status",
+            "help",
+            "version",
+            "status",
+            "uptime",
+            "clear",
+            "reset",
+            "echo",
+            "led_on",
+            "led_off",
+            "button",
+            "temp",
+            "bt_scan",
+            "mtu_start",
+            "mtu_stop",
+            "mtu_status",
         ]
     }
 

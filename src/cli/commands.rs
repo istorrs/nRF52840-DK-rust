@@ -2,9 +2,9 @@ use super::{CliCommand, CliError};
 use cortex_m::peripheral::SCB;
 use defmt::info;
 use embassy_nrf::gpio::{Input, Output};
-use embassy_time::Instant;
-use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
+use embassy_time::Instant;
 use heapless::String;
 use nrf_softdevice::ble::central;
 use nrf_softdevice::Softdevice;
@@ -310,9 +310,11 @@ impl<'d> CommandHandler<'d> {
 
                     // Start MTU operation
                     let mtu = mtu_mutex.lock().await;
-                    if let Err(_) = mtu.start().await {
+                    if mtu.start().await.is_err() {
                         let _ = response.push_str("\r\nError: Failed to start MTU");
-                    } else if let (Some(clock_pin), Some(data_pin)) = (self.mtu_clock_pin.as_mut(), self.mtu_data_pin.as_ref()) {
+                    } else if let (Some(clock_pin), Some(data_pin)) =
+                        (self.mtu_clock_pin.as_mut(), self.mtu_data_pin.as_ref())
+                    {
                         // Start the actual MTU operation
                         let duration = embassy_time::Duration::from_secs(duration_secs as u64);
                         if let Err(e) = mtu.run_mtu_operation(duration, clock_pin, data_pin).await {
@@ -342,7 +344,11 @@ impl<'d> CommandHandler<'d> {
                     let mtu = mtu_mutex.lock().await;
                     let _ = response.push_str("MTU Status:\r\n");
                     let _ = response.push_str("  State: ");
-                    let _ = response.push_str(if mtu.is_running() { "Running" } else { "Stopped" });
+                    let _ = response.push_str(if mtu.is_running() {
+                        "Running"
+                    } else {
+                        "Stopped"
+                    });
                     let _ = response.push_str("\r\n");
                     let _ = response.push_str("  Pins: P0.02 (clock), P0.03 (data)\r\n");
 
@@ -478,4 +484,3 @@ fn write_hex_byte(s: &mut String<256>, byte: u8) -> Result<(), ()> {
 
     Ok(())
 }
-

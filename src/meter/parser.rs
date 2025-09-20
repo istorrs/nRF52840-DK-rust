@@ -2,6 +2,7 @@ use super::config::MeterType;
 use heapless::String;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum MeterCommand {
     Help,
     Clear,
@@ -81,8 +82,7 @@ impl MeterCommandParser {
 
     pub fn available_commands() -> &'static [&'static str] {
         &[
-            "help", "clear", "version", "status",
-            "type", "message", "enable", "disable", "test"
+            "help", "clear", "version", "status", "type", "message", "enable", "disable", "test",
         ]
     }
 }

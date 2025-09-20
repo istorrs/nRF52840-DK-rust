@@ -281,7 +281,8 @@ impl<'d> Terminal<'d> {
             .await?;
         self.write_line("  mtu_start [dur] - Start MTU operation (default 30s)")
             .await?;
-        self.write_line("  mtu_stop    - Stop MTU operation").await?;
+        self.write_line("  mtu_stop    - Stop MTU operation")
+            .await?;
         self.write_line("  mtu_status  - Show MTU status").await?;
         self.write_line("").await?;
         self.write_line("Use TAB to autocomplete commands").await?;
@@ -295,14 +296,21 @@ impl<'d> Terminal<'d> {
     pub async fn show_meter_help(&mut self) -> Result<(), CliError> {
         self.write_line("Water Meter Simulator Commands:").await?;
         self.write_line("  help        - Show this help").await?;
-        self.write_line("  version     - Show simulator version").await?;
-        self.write_line("  status      - Show meter configuration").await?;
+        self.write_line("  version     - Show simulator version")
+            .await?;
+        self.write_line("  status      - Show meter configuration")
+            .await?;
         self.write_line("  clear       - Clear terminal").await?;
-        self.write_line("  type <sensus|neptune> - Set meter type").await?;
-        self.write_line("  message <text> - Set response message").await?;
-        self.write_line("  enable      - Enable meter responses").await?;
-        self.write_line("  disable     - Disable meter responses").await?;
-        self.write_line("  test        - Test meter response").await?;
+        self.write_line("  type <sensus|neptune> - Set meter type")
+            .await?;
+        self.write_line("  message <text> - Set response message")
+            .await?;
+        self.write_line("  enable      - Enable meter responses")
+            .await?;
+        self.write_line("  disable     - Disable meter responses")
+            .await?;
+        self.write_line("  test        - Test meter response")
+            .await?;
         self.write_line("").await?;
         self.write_line("Examples:").await?;
         self.write_line("  type sensus").await?;
