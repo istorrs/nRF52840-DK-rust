@@ -50,32 +50,32 @@ build-ble-scan:
 # Build MTU app (debug)
 build-mtu:
 	@echo "🔧 Building MTU app (debug)..."
-	cargo build --bin mtu_app --no-default-features --features cli
+	EMBASSY_EXECUTOR_TASK_ARENA_SIZE=16384 cargo build --bin mtu_app --no-default-features --features cli
 
 # Build meter app (debug)
 build-meter:
 	@echo "🔧 Building meter app (debug)..."
-	cargo build --bin meter_app --no-default-features --features cli
+	EMBASSY_EXECUTOR_TASK_ARENA_SIZE=16384 cargo build --bin meter_app --no-default-features --features cli
 
 # Build MTU app (debug, explicit)
 build-mtu-debug:
 	@echo "🔧 Building MTU app (debug)..."
-	cargo build --bin mtu_app --no-default-features --features cli
+	EMBASSY_EXECUTOR_TASK_ARENA_SIZE=16384 cargo build --bin mtu_app --no-default-features --features cli
 
 # Build MTU app (release)
 build-mtu-release:
 	@echo "🔧 Building MTU app (release)..."
-	cargo build --release --bin mtu_app --no-default-features --features cli
+	EMBASSY_EXECUTOR_TASK_ARENA_SIZE=16384 cargo build --release --bin mtu_app --no-default-features --features cli
 
 # Build meter app (debug, explicit)
 build-meter-debug:
 	@echo "🔧 Building meter app (debug)..."
-	cargo build --bin meter_app --no-default-features --features cli
+	EMBASSY_EXECUTOR_TASK_ARENA_SIZE=16384 cargo build --bin meter_app --no-default-features --features cli
 
 # Build meter app (release)
 build-meter-release:
 	@echo "🔧 Building meter app (release)..."
-	cargo build --release --bin meter_app --no-default-features --features cli
+	EMBASSY_EXECUTOR_TASK_ARENA_SIZE=16384 cargo build --release --bin meter_app --no-default-features --features cli
 
 # Build all apps
 build-all:
