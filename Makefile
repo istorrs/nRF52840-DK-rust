@@ -15,9 +15,12 @@ PROBE_SELECTOR = $(shell probe-rs list 2>/dev/null | grep "^\[$(BOARD)\]:" | sed
 PROBE_ARG = $(if $(PROBE_SELECTOR),--probe $(PROBE_SELECTOR),$(if $(filter 0,$(BOARDS_DETECTED)),$(error No boards detected. Please connect an nRF52840-DK and run 'probe-rs list'),$(error Board $(BOARD) not found. Available boards: 0-$(shell echo $$(($(BOARDS_DETECTED)-1))). Run 'probe-rs list' for details)))
 
 .PHONY: all build flash debug clean setup setup-probe-rs setup-ble help format check test-configs release-test list-boards
-.PHONY: build-gpio build-gpio-sd build-ble build-ble-scan build-cli
-.PHONY: flash-gpio flash-gpio-sd flash-ble flash-ble-scan flash-cli
-.PHONY: debug-gpio debug-gpio-sd debug-ble debug-ble-scan debug-cli
+.PHONY: build-gpio build-gpio-sd build-ble build-ble-scan build-mtu build-meter
+.PHONY: flash-gpio flash-gpio-sd flash-ble flash-ble-scan flash-mtu flash-meter
+.PHONY: debug-gpio debug-gpio-sd debug-ble debug-ble-scan debug-mtu debug-meter
+.PHONY: build-mtu-debug build-mtu-release build-meter-debug build-meter-release
+.PHONY: flash-mtu-debug flash-mtu-release flash-meter-debug flash-meter-release
+.PHONY: setup-debug-pair
 
 # Default target - GPIO-only app
 all: build-gpio
@@ -44,10 +47,35 @@ build-ble-scan:
 	@echo "🔧 Building BLE scanner app..."
 	cargo build --bin ble_scan --no-default-features --features ble
 
-# Build CLI app
-build-cli:
-	@echo "🔧 Building CLI app..."
-	cargo build --bin cli_app --no-default-features --features cli
+# Build MTU app (debug)
+build-mtu:
+	@echo "🔧 Building MTU app (debug)..."
+	cargo build --bin mtu_app --no-default-features --features cli
+
+# Build meter app (debug)
+build-meter:
+	@echo "🔧 Building meter app (debug)..."
+	cargo build --bin meter_app --no-default-features --features cli
+
+# Build MTU app (debug, explicit)
+build-mtu-debug:
+	@echo "🔧 Building MTU app (debug)..."
+	cargo build --bin mtu_app --no-default-features --features cli
+
+# Build MTU app (release)
+build-mtu-release:
+	@echo "🔧 Building MTU app (release)..."
+	cargo build --release --bin mtu_app --no-default-features --features cli
+
+# Build meter app (debug, explicit)
+build-meter-debug:
+	@echo "🔧 Building meter app (debug)..."
+	cargo build --bin meter_app --no-default-features --features cli
+
+# Build meter app (release)
+build-meter-release:
+	@echo "🔧 Building meter app (release)..."
+	cargo build --release --bin meter_app --no-default-features --features cli
 
 # Build all apps
 build-all:
@@ -56,7 +84,8 @@ build-all:
 	@make build-gpio-sd
 	@make build-ble
 	@make build-ble-scan
-	@make build-cli
+	@make build-mtu
+	@make build-meter
 
 # === Flash Targets ===
 
@@ -80,10 +109,61 @@ flash-ble-scan: build-ble-scan
 	@echo "📱 Flashing BLE scanner app to board $(BOARD) (preserving SoftDevice)..."
 	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan
 
-# Flash CLI app (preserves SoftDevice)
-flash-cli: build-cli
-	@echo "📱 Flashing CLI app to board $(BOARD) (preserving SoftDevice)..."
-	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/cli_app
+# Flash MTU app (preserves SoftDevice)
+flash-mtu: build-mtu
+	@echo "📱 Flashing MTU app to board $(BOARD) (preserving SoftDevice)..."
+	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/mtu_app
+
+# Flash meter app (preserves SoftDevice)
+flash-meter: build-meter
+	@echo "📱 Flashing meter app to board $(BOARD) (preserving SoftDevice)..."
+	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/meter_app
+
+# Flash MTU app debug (preserves SoftDevice)
+flash-mtu-debug: build-mtu-debug
+	@echo "📱 Flashing MTU app (debug) to board $(BOARD) (preserving SoftDevice)..."
+	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/mtu_app
+
+# Flash MTU app release (preserves SoftDevice)
+flash-mtu-release: build-mtu-release
+	@echo "📱 Flashing MTU app (release) to board $(BOARD) (preserving SoftDevice)..."
+	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/release/mtu_app
+
+# Flash meter app debug (preserves SoftDevice)
+flash-meter-debug: build-meter-debug
+	@echo "📱 Flashing meter app (debug) to board $(BOARD) (preserving SoftDevice)..."
+	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/meter_app
+
+# Flash meter app release (preserves SoftDevice)
+flash-meter-release: build-meter-release
+	@echo "📱 Flashing meter app (release) to board $(BOARD) (preserving SoftDevice)..."
+	probe-rs download $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/release/meter_app
+
+# === Convenience targets for cross-board debugging ===
+
+# Flash MTU to board 0 and meter to board 1 (if available)
+setup-debug-pair:
+	@echo "🔗 Setting up debug pair: MTU on board 0, meter on board 1..."
+	@if [ "$(BOARDS_DETECTED)" -lt "2" ]; then \
+		echo "❌ Need at least 2 boards connected for debug pair setup"; \
+		echo "   Currently detected: $(BOARDS_DETECTED) boards"; \
+		echo "   Connect both boards and run 'make list-boards'"; \
+		exit 1; \
+	fi
+	@echo "📱 Flashing MTU app to board 0..."
+	@make flash-mtu BOARD=0
+	@echo "📱 Flashing meter app to board 1..."
+	@make flash-meter BOARD=1
+	@echo "✅ Debug pair setup complete!"
+	@echo ""
+	@echo "🔌 Hardware connection:"
+	@echo "   Connect P0.02 on both boards (clock line)"
+	@echo "   Connect P0.03 on both boards (data line)"
+	@echo "   Connect GND on both boards (common ground)"
+	@echo ""
+	@echo "🖥️  Serial terminals:"
+	@echo "   Board 0 (MTU): Connect to UART console, use 'mtu_start 30'"
+	@echo "   Board 1 (meter): Connect to UART console, configure meter type/message"
 
 # === Debug Targets ===
 
@@ -107,10 +187,15 @@ debug-ble-scan: flash-ble-scan
 	@echo "🐛 Starting debug session (BLE scanner) on board $(BOARD)..."
 	probe-rs attach $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/ble_scan
 
-# Debug CLI app (preserves SoftDevice)
-debug-cli: flash-cli
-	@echo "🐛 Starting debug session (CLI app) on board $(BOARD)..."
-	probe-rs attach $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/cli_app
+# Debug MTU app (preserves SoftDevice)
+debug-mtu: flash-mtu
+	@echo "🐛 Starting debug session (MTU app) on board $(BOARD)..."
+	probe-rs attach $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/mtu_app
+
+# Debug meter app (preserves SoftDevice)
+debug-meter: flash-meter
+	@echo "🐛 Starting debug session (meter app) on board $(BOARD)..."
+	probe-rs attach $(PROBE_ARG) --chip nRF52840_xxAA target/thumbv7em-none-eabihf/debug/meter_app
 
 # === Legacy Targets (for backward compatibility) ===
 
@@ -202,6 +287,8 @@ check:
 	cargo clippy --bin gpio_app --features gpio -- -D warnings
 	@echo "Checking BLE configurations..."
 	cargo clippy --bin ble_gpio --bin ble_scan --no-default-features --features ble -- -D warnings
+	@echo "Checking MTU and meter apps..."
+	cargo clippy --bin mtu_app --bin meter_app --no-default-features --features cli -- -D warnings
 
 # Test all configurations
 test-configs:
@@ -289,20 +376,38 @@ help:
 	@echo "  make build-gpio-sd   - Build SoftDevice-compatible GPIO app"
 	@echo "  make build-ble       - Build BLE + GPIO combined app"
 	@echo "  make build-ble-scan  - Build BLE scanner app"
-	@echo "  make build-cli       - Build CLI app with USB CDC interface"
+	@echo "  make build-mtu       - Build MTU app (debug)"
+	@echo "  make build-meter     - Build meter app (debug)"
 	@echo "  make build-all       - Build all apps"
 	@echo ""
+	@echo "=== Water Meter Debug Apps ==="
+	@echo "  make build-mtu-debug      - Build MTU app (debug)"
+	@echo "  make build-mtu-release    - Build MTU app (release)"
+	@echo "  make build-meter-debug    - Build meter app (debug)"
+	@echo "  make build-meter-release  - Build meter app (release)"
+	@echo ""
+	@echo "  make flash-mtu            - Flash MTU app (debug)"
+	@echo "  make flash-meter          - Flash meter app (debug)"
+	@echo "  make flash-mtu-debug      - Flash MTU app (debug)"
+	@echo "  make flash-mtu-release    - Flash MTU app (release)"
+	@echo "  make flash-meter-debug    - Flash meter app (debug)"
+	@echo "  make flash-meter-release  - Flash meter app (release)"
+	@echo ""
+	@echo "  make debug-mtu            - Debug MTU app"
+	@echo "  make debug-meter          - Debug meter app"
+	@echo ""
+	@echo "  make setup-debug-pair     - Flash MTU to board 0, meter to board 1"
+	@echo ""
+	@echo "=== Other App Commands ==="
 	@echo "  make flash-gpio      - Flash GPIO-only app"
 	@echo "  make flash-gpio-sd   - Flash SoftDevice-compatible GPIO app"
 	@echo "  make flash-ble       - Flash BLE + GPIO combined app"
 	@echo "  make flash-ble-scan  - Flash BLE scanner app"
-	@echo "  make flash-cli       - Flash CLI app"
 	@echo ""
 	@echo "  make debug-gpio      - Debug GPIO-only app"
 	@echo "  make debug-gpio-sd   - Debug SoftDevice-compatible GPIO app"
 	@echo "  make debug-ble       - Debug BLE + GPIO combined app"
 	@echo "  make debug-ble-scan  - Debug BLE scanner app"
-	@echo "  make debug-cli       - Debug CLI app"
 	@echo ""
 	@echo "=== Legacy Commands (default to GPIO-only) ==="
 	@echo "  make build           - Build GPIO-only app (default)"
