@@ -94,6 +94,15 @@ impl GpioMtu {
             // Sample data line after clock pulse
             let data_bit = if data_pin.is_high() { 1 } else { 0 };
 
+            // Log data line state periodically for debugging
+            static mut DEBUG_COUNTER: u32 = 0;
+            unsafe {
+                DEBUG_COUNTER += 1;
+                if DEBUG_COUNTER % 1000 == 0 {
+                    info!("MTU: Data line sample #{}: {} (pin level: {})", DEBUG_COUNTER, data_bit, if data_pin.is_high() { "HIGH" } else { "LOW" });
+                }
+            }
+
             // UART frame detection and assembly
             if !in_frame && data_bit == 0 {
                 // Start bit detected (high to low transition)

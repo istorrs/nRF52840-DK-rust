@@ -35,8 +35,8 @@ async fn clock_detection_task(
 
     let mut pulse_count = 0u32;
     let mut last_pulse_time = embassy_time::Instant::now();
-    let wake_up_threshold = 10; // Minimum pulses to consider wake-up sequence
-    let pulse_timeout = embassy_time::Duration::from_millis(10); // Longer timeout for pulse sequences
+    let wake_up_threshold = 5; // Minimum pulses to consider wake-up sequence (lower for continuous clock)
+    let pulse_timeout = embassy_time::Duration::from_millis(500); // Much longer timeout - continuous clock should have short gaps
 
     loop {
         // Wait for any clock signal (both edges like RPI project)
@@ -45,7 +45,9 @@ async fn clock_detection_task(
         let now = embassy_time::Instant::now();
 
         // Check if this pulse is part of a sequence (within timeout)
-        if now.duration_since(last_pulse_time) > pulse_timeout {
+        let time_since_last = now.duration_since(last_pulse_time);
+        if time_since_last > pulse_timeout {
+            info!("Pulse sequence reset - gap was {:?}", time_since_last);
             pulse_count = 0; // Reset count if too much time passed
         }
 
@@ -57,7 +59,7 @@ async fn clock_detection_task(
         embassy_time::Timer::after(embassy_time::Duration::from_millis(20)).await;
         clock_led.set_high(); // LED off
 
-        info!("Clock edge detected! Pulse count: {}", pulse_count);
+        info!("Clock edge detected! Pulse count: {} (gap: {:?})", pulse_count, time_since_last);
 
         // Check if we have a complete wake-up sequence
         if pulse_count >= wake_up_threshold {
