@@ -3,6 +3,8 @@ use cortex_m::peripheral::SCB;
 use defmt::info;
 use embassy_nrf::gpio::{Input, Output};
 use embassy_time::Instant;
+use embassy_sync::mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use heapless::String;
 use nrf_softdevice::ble::central;
 use nrf_softdevice::Softdevice;
@@ -17,6 +19,7 @@ pub struct CommandHandler<'d> {
     button3: Option<Input<'d>>,
     button4: Option<Input<'d>>,
     softdevice: Option<&'d Softdevice>,
+    mtu: Option<Mutex<ThreadModeRawMutex, crate::mtu::GpioMtu>>,
 }
 
 impl<'d> Default for CommandHandler<'d> {
@@ -37,6 +40,7 @@ impl<'d> CommandHandler<'d> {
             button3: None,
             button4: None,
             softdevice: None,
+            mtu: None,
         }
     }
 
@@ -62,6 +66,12 @@ impl<'d> CommandHandler<'d> {
 
     pub fn with_softdevice(mut self, softdevice: &'d Softdevice) -> Self {
         self.softdevice = Some(softdevice);
+        self
+    }
+
+    pub fn with_mtu(mut self, _mtu_clock_pin: Output<'d>, _mtu_data_pin: Input<'d>) -> Self {
+        let mtu = crate::mtu::GpioMtu::new(crate::mtu::MtuConfig::default());
+        self.mtu = Some(Mutex::new(mtu));
         self
     }
 
@@ -280,6 +290,55 @@ impl<'d> CommandHandler<'d> {
                     Err(_) => {
                         let _ = response.push_str("BLE scan failed");
                     }
+                }
+            }
+            CliCommand::MtuStart(duration) => {
+                info!("CLI: MTU start requested");
+                if let Some(ref mtu_mutex) = self.mtu {
+                    let duration_secs = duration.unwrap_or(30);
+                    let _ = response.push_str("Starting MTU operation for ");
+                    let _ = write_num(&mut response, duration_secs as u64);
+                    let _ = response.push_str(" seconds...\r\n");
+                    let _ = response.push_str("MTU: Simulating water meter communication\r\n");
+                    let _ = response.push_str("Use 'mtu_status' to check for received messages");
+
+                    // Start MTU operation
+                    let mtu = mtu_mutex.lock().await;
+                    if let Err(_) = mtu.start().await {
+                        let _ = response.push_str("\r\nError: Failed to start MTU");
+                    }
+                } else {
+                    let _ = response.push_str("MTU not configured");
+                }
+            }
+            CliCommand::MtuStop => {
+                info!("CLI: MTU stop requested");
+                if let Some(ref mtu_mutex) = self.mtu {
+                    let mtu = mtu_mutex.lock().await;
+                    mtu.stop();
+                    let _ = response.push_str("MTU operation stopped");
+                } else {
+                    let _ = response.push_str("MTU not configured");
+                }
+            }
+            CliCommand::MtuStatus => {
+                info!("CLI: MTU status requested");
+                if let Some(ref mtu_mutex) = self.mtu {
+                    let mtu = mtu_mutex.lock().await;
+                    let _ = response.push_str("MTU Status:\r\n");
+                    let _ = response.push_str("  State: ");
+                    let _ = response.push_str(if mtu.is_running() { "Running" } else { "Stopped" });
+                    let _ = response.push_str("\r\n");
+                    let _ = response.push_str("  Pins: P0.02 (clock), P0.03 (data)\r\n");
+
+                    if let Some(message) = mtu.get_last_message().await {
+                        let _ = response.push_str("  Last Message: ");
+                        let _ = response.push_str(message.as_str());
+                    } else {
+                        let _ = response.push_str("  Last Message: None");
+                    }
+                } else {
+                    let _ = response.push_str("MTU not configured");
                 }
             }
             CliCommand::Unknown(cmd) => {

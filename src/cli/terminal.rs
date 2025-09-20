@@ -279,6 +279,10 @@ impl<'d> Terminal<'d> {
         self.write_line("  temp        - Show temperature").await?;
         self.write_line("  bt_scan [time] - Scan for BLE devices (default 10s)")
             .await?;
+        self.write_line("  mtu_start [dur] - Start MTU operation (default 30s)")
+            .await?;
+        self.write_line("  mtu_stop    - Stop MTU operation").await?;
+        self.write_line("  mtu_status  - Show MTU status").await?;
         self.write_line("").await?;
         self.write_line("Use TAB to autocomplete commands").await?;
         self.write_line("Use UP/DOWN arrows to navigate command history")

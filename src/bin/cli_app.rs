@@ -94,6 +94,10 @@ async fn main(spawner: Spawner) {
     let button3 = Input::new(p.P0_24, Pull::Up);
     let button4 = Input::new(p.P0_25, Pull::Up);
 
+    // Configure MTU pins (P0.02 for clock out, P0.03 for data in)
+    let mtu_clock_pin = Output::new(p.P0_02, Level::Low, OutputDrive::Standard);
+    let mtu_data_pin = Input::new(p.P0_03, Pull::Up); // Pull-up for proper UART idle state
+
     // Configure UART for CLI
     let mut uart_config = uarte::Config::default();
     uart_config.parity = uarte::Parity::EXCLUDED;
@@ -102,11 +106,12 @@ async fn main(spawner: Spawner) {
     let uarte = Uarte::new(p.UARTE1, Irqs, p.P1_14, p.P1_15, uart_config);
     info!("✅ Peripherals configured");
 
-    // Initialize CLI components with LEDs, buttons, and SoftDevice
+    // Initialize CLI components with LEDs, buttons, MTU, and SoftDevice
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
     let mut command_handler = CommandHandler::new()
         .with_leds(led3, led4)
         .with_buttons(button1, button2, button3, button4)
+        .with_mtu(mtu_clock_pin, mtu_data_pin)
         .with_softdevice(sd);
 
     // Send welcome message
@@ -117,6 +122,9 @@ async fn main(spawner: Spawner) {
         .await;
     let _ = terminal
         .write_line("Use TAB for command autocompletion")
+        .await;
+    let _ = terminal
+        .write_line("MTU available on pins P0.02 (clock) / P0.03 (data)")
         .await;
     let _ = terminal.print_prompt().await;
 

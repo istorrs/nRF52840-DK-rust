@@ -11,3 +11,6 @@ pub mod gpio_tasks;
 // CLI interface modules (conditional compilation for cli feature)
 #[cfg(feature = "cli")]
 pub mod cli;
+
+#[cfg(feature = "cli")]
+pub mod mtu;

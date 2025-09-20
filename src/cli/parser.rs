@@ -17,7 +17,7 @@ impl CommandParser {
     pub fn get_available_commands() -> &'static [&'static str] {
         &[
             "help", "version", "status", "uptime", "clear", "reset", "echo", "led_on", "led_off",
-            "button", "temp", "bt_scan",
+            "button", "temp", "bt_scan", "mtu_start", "mtu_stop", "mtu_status",
         ]
     }
 
@@ -71,6 +71,27 @@ impl CommandParser {
                     CliCommand::BtScan(None) // Default time
                 }
             }
+            "mtu_start" => {
+                if let Some(arg) = parts.next() {
+                    if let Ok(duration) = arg.parse::<u16>() {
+                        if duration > 0 && duration <= 300 {
+                            CliCommand::MtuStart(Some(duration))
+                        } else {
+                            let mut msg = String::new();
+                            let _ = msg.push_str("mtu_start: duration must be 1-300 seconds");
+                            CliCommand::Unknown(msg)
+                        }
+                    } else {
+                        let mut msg = String::new();
+                        let _ = msg.push_str("mtu_start: invalid duration");
+                        CliCommand::Unknown(msg)
+                    }
+                } else {
+                    CliCommand::MtuStart(None) // Default duration
+                }
+            }
+            "mtu_stop" => CliCommand::MtuStop,
+            "mtu_status" => CliCommand::MtuStatus,
             "echo" => {
                 let args: heapless::Vec<&str, 8> = parts.collect();
                 let mut echo_string = heapless::String::new();

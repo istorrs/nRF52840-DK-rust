@@ -24,6 +24,9 @@ pub enum CliCommand {
     Button,
     Temp,
     BtScan(Option<u16>), // Optional scan time in seconds
+    MtuStart(Option<u16>), // Optional duration in seconds
+    MtuStop,
+    MtuStatus,
     Empty,
     Unknown(heapless::String<32>),
 }
