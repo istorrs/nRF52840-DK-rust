@@ -292,6 +292,30 @@ impl<'d> Terminal<'d> {
         Ok(())
     }
 
+    pub async fn show_meter_help(&mut self) -> Result<(), CliError> {
+        self.write_line("Water Meter Simulator Commands:").await?;
+        self.write_line("  help        - Show this help").await?;
+        self.write_line("  version     - Show simulator version").await?;
+        self.write_line("  status      - Show meter configuration").await?;
+        self.write_line("  clear       - Clear terminal").await?;
+        self.write_line("  type <sensus|neptune> - Set meter type").await?;
+        self.write_line("  message <text> - Set response message").await?;
+        self.write_line("  enable      - Enable meter responses").await?;
+        self.write_line("  disable     - Disable meter responses").await?;
+        self.write_line("  test        - Test meter response").await?;
+        self.write_line("").await?;
+        self.write_line("Examples:").await?;
+        self.write_line("  type sensus").await?;
+        self.write_line("  message WATER12345").await?;
+        self.write_line("  test").await?;
+        self.write_line("").await?;
+        self.write_line("Pin Configuration:").await?;
+        self.write_line("  P0.02 - Clock input (from MTU)").await?;
+        self.write_line("  P0.03 - Data output (to MTU)").await?;
+
+        Ok(())
+    }
+
     async fn handle_history_up(&mut self) -> Result<(), CliError> {
         if self.command_history.is_empty() {
             return Ok(());

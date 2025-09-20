@@ -20,6 +20,8 @@ pub struct CommandHandler<'d> {
     button4: Option<Input<'d>>,
     softdevice: Option<&'d Softdevice>,
     mtu: Option<Mutex<ThreadModeRawMutex, crate::mtu::GpioMtu>>,
+    mtu_clock_pin: Option<Output<'d>>,
+    mtu_data_pin: Option<Input<'d>>,
 }
 
 impl<'d> Default for CommandHandler<'d> {
@@ -41,6 +43,8 @@ impl<'d> CommandHandler<'d> {
             button4: None,
             softdevice: None,
             mtu: None,
+            mtu_clock_pin: None,
+            mtu_data_pin: None,
         }
     }
 
@@ -69,9 +73,11 @@ impl<'d> CommandHandler<'d> {
         self
     }
 
-    pub fn with_mtu(mut self, _mtu_clock_pin: Output<'d>, _mtu_data_pin: Input<'d>) -> Self {
+    pub fn with_mtu(mut self, mtu_clock_pin: Output<'d>, mtu_data_pin: Input<'d>) -> Self {
         let mtu = crate::mtu::GpioMtu::new(crate::mtu::MtuConfig::default());
         self.mtu = Some(Mutex::new(mtu));
+        self.mtu_clock_pin = Some(mtu_clock_pin);
+        self.mtu_data_pin = Some(mtu_data_pin);
         self
     }
 
@@ -296,16 +302,25 @@ impl<'d> CommandHandler<'d> {
                 info!("CLI: MTU start requested");
                 if let Some(ref mtu_mutex) = self.mtu {
                     let duration_secs = duration.unwrap_or(30);
-                    let _ = response.push_str("Starting MTU operation for ");
+                    let _ = response.push_str("Starting GPIO-based MTU operation for ");
                     let _ = write_num(&mut response, duration_secs as u64);
                     let _ = response.push_str(" seconds...\r\n");
-                    let _ = response.push_str("MTU: Simulating water meter communication\r\n");
+                    let _ = response.push_str("MTU: Clock on P0.02, Data on P0.03\r\n");
                     let _ = response.push_str("Use 'mtu_status' to check for received messages");
 
                     // Start MTU operation
                     let mtu = mtu_mutex.lock().await;
                     if let Err(_) = mtu.start().await {
                         let _ = response.push_str("\r\nError: Failed to start MTU");
+                    } else if let (Some(clock_pin), Some(data_pin)) = (self.mtu_clock_pin.as_mut(), self.mtu_data_pin.as_ref()) {
+                        // Start the actual MTU operation
+                        let duration = embassy_time::Duration::from_secs(duration_secs as u64);
+                        if let Err(e) = mtu.run_mtu_operation(duration, clock_pin, data_pin).await {
+                            let _ = response.push_str("\r\nError: MTU operation failed");
+                            info!("MTU operation error: {:?}", e);
+                        }
+                    } else {
+                        let _ = response.push_str("\r\nError: MTU GPIO pins not configured");
                     }
                 } else {
                     let _ = response.push_str("MTU not configured");
@@ -463,3 +478,4 @@ fn write_hex_byte(s: &mut String<256>, byte: u8) -> Result<(), ()> {
 
     Ok(())
 }
+

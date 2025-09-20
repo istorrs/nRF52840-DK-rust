@@ -13,7 +13,8 @@ use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
 // Import our CLI modules
-use nrf52840_dk_template::cli::{CliError, CommandHandler, Terminal};
+use nrf52840_dk_template::cli::{CliError, Terminal};
+use nrf52840_dk_template::meter::{MeterHandler, MeterConfig, MeterType};
 
 bind_interrupts!(struct Irqs {
     UARTE1 => embassy_nrf::uarte::InterruptHandler<embassy_nrf::peripherals::UARTE1>;
@@ -59,9 +60,9 @@ async fn main(spawner: Spawner) {
             _bitfield_1: raw::ble_gap_cfg_role_count_t::new_bitfield_1(0),
         }),
         gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
-            p_value: b"nRF52840-DK CLI" as *const u8 as _,
-            current_len: 15,
-            max_len: 15,
+            p_value: b"nRF52840-DK Meter" as *const u8 as _,
+            current_len: 17,
+            max_len: 17,
             write_perm: unsafe { core::mem::zeroed() },
             _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
                 raw::BLE_GATTS_VLOC_STACK as u8,
@@ -83,20 +84,12 @@ async fn main(spawner: Spawner) {
     // Configure LED2 (P0.14) for UART TX activity indication
     let led2 = Output::new(p.P0_14, Level::High, OutputDrive::Standard);
 
-    // Configure LED3 (P0.15) and LED4 (P0.16) for CLI commands
+    // Configure LED3 (P0.15) for meter activity
     let led3 = Output::new(p.P0_15, Level::High, OutputDrive::Standard);
-    let led4 = Output::new(p.P0_16, Level::High, OutputDrive::Standard);
 
-    // Configure Buttons (P0.11, P0.12, P0.24, P0.25) for CLI commands
-    // Buttons are active low, so we use internal pull-up resistors
-    let button1 = Input::new(p.P0_11, Pull::Up);
-    let button2 = Input::new(p.P0_12, Pull::Up);
-    let button3 = Input::new(p.P0_24, Pull::Up);
-    let button4 = Input::new(p.P0_25, Pull::Up);
-
-    // Configure MTU pins (P0.02 for clock out, P0.03 for data in)
-    let mtu_clock_pin = Output::new(p.P0_02, Level::Low, OutputDrive::Standard);
-    let mtu_data_pin = Input::new(p.P0_03, Pull::Up); // Pull-up for proper UART idle state
+    // Configure Meter pins - P0.02 for clock input (from MTU), P0.03 for data output (to MTU)
+    let meter_clock_pin = Input::new(p.P0_02, Pull::Up); // Clock input from MTU
+    let meter_data_pin = Output::new(p.P0_03, Level::High, OutputDrive::Standard); // Data output to MTU
 
     // Configure UART for CLI
     let mut uart_config = uarte::Config::default();
@@ -106,17 +99,18 @@ async fn main(spawner: Spawner) {
     let uarte = Uarte::new(p.UARTE1, Irqs, p.P1_14, p.P1_15, uart_config);
     info!("✅ Peripherals configured");
 
-    // Initialize CLI components with LEDs, buttons, MTU, and SoftDevice
+    // Initialize CLI components with meter functionality
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
-    let mut command_handler = CommandHandler::new()
-        .with_leds(led3, led4)
-        .with_buttons(button1, button2, button3, button4)
-        .with_mtu(mtu_clock_pin, mtu_data_pin)
-        .with_softdevice(sd);
+    let mut meter_handler = MeterHandler::new(
+        MeterConfig::default(),
+        meter_clock_pin,
+        meter_data_pin,
+        led3,
+    );
 
     // Send welcome message
     let _ = terminal.write_line("").await;
-    let _ = terminal.write_line("nRF52840-DK CLI Interface").await;
+    let _ = terminal.write_line("Water Meter Simulator Interface").await;
     let _ = terminal
         .write_line("Type 'help' for available commands")
         .await;
@@ -124,7 +118,7 @@ async fn main(spawner: Spawner) {
         .write_line("Use TAB for command autocompletion")
         .await;
     let _ = terminal
-        .write_line("MTU available on pins P0.02 (clock) / P0.03 (data)")
+        .write_line("Meter Clock: P0.02 (in) | Data: P0.03 (out)")
         .await;
     let _ = terminal.print_prompt().await;
 
@@ -147,26 +141,19 @@ async fn main(spawner: Spawner) {
                     Ok(Some(command_line)) => {
                         // Parse and execute the command
                         let command =
-                            nrf52840_dk_template::cli::parser::CommandParser::parse_command(
+                            nrf52840_dk_template::meter::parser::MeterCommandParser::parse_command(
                                 &command_line,
                             );
 
                         // Clone command for later pattern matching
                         let command_clone = command.clone();
 
-                        match command_handler.execute_command(command).await {
+                        match meter_handler.execute_command(command).await {
                             Ok(response) => {
                                 // Only write response if it's not empty
                                 if !response.is_empty() {
                                     let _ = terminal.write_line(&response).await;
                                 }
-                            }
-                            Err(CliError::InvalidCommand) => {
-                                let _ = terminal
-                                    .write_line(
-                                        "Invalid command. Type 'help' for available commands.",
-                                    )
-                                    .await;
                             }
                             Err(_) => {
                                 let _ = terminal.write_line("Command execution error.").await;
@@ -175,10 +162,10 @@ async fn main(spawner: Spawner) {
 
                         // Handle special commands that need terminal interaction
                         match command_clone {
-                            nrf52840_dk_template::cli::CliCommand::Help => {
-                                let _ = terminal.show_help().await;
+                            nrf52840_dk_template::meter::MeterCommand::Help => {
+                                let _ = terminal.show_meter_help().await;
                             }
-                            nrf52840_dk_template::cli::CliCommand::Clear => {
+                            nrf52840_dk_template::meter::MeterCommand::Clear => {
                                 let _ = terminal.clear_screen().await;
                             }
                             _ => {}

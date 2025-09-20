@@ -14,3 +14,6 @@ pub mod cli;
 
 #[cfg(feature = "cli")]
 pub mod mtu;
+
+#[cfg(feature = "cli")]
+pub mod meter;
