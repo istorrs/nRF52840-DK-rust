@@ -10,7 +10,7 @@ use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 
 pub struct GpioMtu {
-    config: MtuConfig,
+    config: Mutex<ThreadModeRawMutex, MtuConfig>,
     running: AtomicBool,
     last_message: Mutex<ThreadModeRawMutex, Option<String<256>>>,
 }
@@ -18,10 +18,26 @@ pub struct GpioMtu {
 impl GpioMtu {
     pub fn new(config: MtuConfig) -> Self {
         Self {
-            config,
+            config: Mutex::new(config),
             running: AtomicBool::new(false),
             last_message: Mutex::new(None),
         }
+    }
+
+    pub async fn set_baud_rate(&self, baud_rate: u32) {
+        let mut config = self.config.lock().await;
+        config.baud_rate = baud_rate;
+        info!("MTU: Baud rate set to {}", baud_rate);
+    }
+
+    pub async fn get_baud_rate(&self) -> u32 {
+        let config = self.config.lock().await;
+        config.baud_rate
+    }
+
+    pub async fn get_config(&self) -> MtuConfig {
+        let config = self.config.lock().await;
+        config.clone()
     }
 
     pub async fn start(&self) -> MtuResult<()> {
@@ -58,23 +74,29 @@ impl GpioMtu {
         mut clock_led: Option<&mut Output<'_>>,
         mut data_led: Option<&mut Output<'_>>,
     ) -> MtuResult<()> {
+        let config = self.config.lock().await;
+        let baud_rate = config.baud_rate;
+        let framing = config.framing;
+        let power_up_delay_ms = config.power_up_delay_ms;
+        drop(config); // Release lock early
+
         info!(
-            "MTU: Starting continuous clock generation at 9600 baud for {:?}",
-            duration
+            "MTU: Starting continuous clock generation at {} baud for {:?}",
+            baud_rate, duration
         );
 
         let start_time = Instant::now();
-        let bit_duration = Duration::from_micros(104); // 9600 baud timing
+        let bit_duration = Duration::from_micros(1_000_000 / baud_rate as u64);
 
         // Power up delay as specified in config
-        Timer::after(Duration::from_millis(self.config.power_up_delay_ms)).await;
+        Timer::after(Duration::from_millis(power_up_delay_ms)).await;
 
         // UART frame assembly state
         let mut frame_bits = heapless::Vec::<u8, 16>::new();
         let mut message_chars = heapless::Vec::<char, 256>::new();
         let mut in_frame = false;
         let mut frame_bit_count = 0;
-        let expected_frame_bits = self.config.framing.bits_per_frame();
+        let expected_frame_bits = framing.bits_per_frame();
 
         // Synchronous clock generation and data sampling with UART framing
         while start_time.elapsed() < duration && self.running.load(Ordering::Relaxed) {
@@ -132,7 +154,7 @@ impl GpioMtu {
                     }
 
                     // Process complete frame
-                    match UartFrame::new(frame_bits.clone(), self.config.framing) {
+                    match UartFrame::new(frame_bits.clone(), framing) {
                         Ok(frame) => {
                             match extract_char_from_frame(&frame) {
                                 Ok(ch) => {

@@ -31,6 +31,7 @@ impl CommandParser {
             "mtu_start",
             "mtu_stop",
             "mtu_status",
+            "mtu_baud",
         ]
     }
 
@@ -105,6 +106,27 @@ impl CommandParser {
             }
             "mtu_stop" => CliCommand::MtuStop,
             "mtu_status" => CliCommand::MtuStatus,
+            "mtu_baud" => {
+                if let Some(baud_str) = parts.next() {
+                    if let Ok(baud_rate) = baud_str.parse::<u32>() {
+                        if baud_rate >= 300 && baud_rate <= 115200 {
+                            CliCommand::MtuBaud(baud_rate)
+                        } else {
+                            let mut msg = String::new();
+                            let _ = msg.push_str("mtu_baud: rate must be 300-115200");
+                            CliCommand::Unknown(msg)
+                        }
+                    } else {
+                        let mut msg = String::new();
+                        let _ = msg.push_str("mtu_baud: invalid baud rate");
+                        CliCommand::Unknown(msg)
+                    }
+                } else {
+                    let mut msg = String::new();
+                    let _ = msg.push_str("mtu_baud: baud rate required");
+                    CliCommand::Unknown(msg)
+                }
+            }
             "echo" => {
                 let args: heapless::Vec<&str, 8> = parts.collect();
                 let mut echo_string = heapless::String::new();

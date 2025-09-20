@@ -12,7 +12,7 @@ pub enum MeterCommand {
     SetMessage(String<256>),
     Enable,
     Disable,
-    Test,
+    Empty,
 }
 
 pub struct MeterCommandParser;
@@ -22,13 +22,13 @@ impl MeterCommandParser {
         let input = input.trim();
 
         if input.is_empty() {
-            return MeterCommand::Help;
+            return MeterCommand::Empty;
         }
 
         let parts: heapless::Vec<&str, 8> = input.split_whitespace().collect();
 
         if parts.is_empty() {
-            return MeterCommand::Help;
+            return MeterCommand::Empty;
         }
 
         match parts[0] {
@@ -38,7 +38,6 @@ impl MeterCommandParser {
             "status" | "stat" => MeterCommand::Status,
             "enable" => MeterCommand::Enable,
             "disable" => MeterCommand::Disable,
-            "test" => MeterCommand::Test,
             "type" => {
                 if parts.len() >= 2 {
                     match parts[1] {
@@ -82,7 +81,7 @@ impl MeterCommandParser {
 
     pub fn available_commands() -> &'static [&'static str] {
         &[
-            "help", "clear", "version", "status", "type", "message", "enable", "disable", "test",
+            "help", "clear", "version", "status", "type", "message", "enable", "disable",
         ]
     }
 }

@@ -1,4 +1,5 @@
 use super::{CliCommand, CliError};
+use core::fmt::Write;
 use cortex_m::peripheral::SCB;
 use defmt::info;
 use embassy_nrf::gpio::{Input, Output};
@@ -361,6 +362,7 @@ impl<'d> CommandHandler<'d> {
                 info!("CLI: MTU status requested");
                 if let Some(ref mtu_mutex) = self.mtu {
                     let mtu = mtu_mutex.lock().await;
+                    let baud_rate = mtu.get_baud_rate().await;
                     let _ = response.push_str("MTU Status:\r\n");
                     let _ = response.push_str("  State: ");
                     let _ = response.push_str(if mtu.is_running() {
@@ -369,6 +371,11 @@ impl<'d> CommandHandler<'d> {
                         "Stopped"
                     });
                     let _ = response.push_str("\r\n");
+                    let _ = response.push_str("  Baud rate: ");
+                    let mut baud_str = heapless::String::<16>::new();
+                    let _ = write!(baud_str, "{}", baud_rate);
+                    let _ = response.push_str(baud_str.as_str());
+                    let _ = response.push_str(" bps\r\n");
                     let _ = response.push_str("  Pins: P0.02 (clock), P0.03 (data)\r\n");
 
                     if let Some(message) = mtu.get_last_message().await {
@@ -377,6 +384,20 @@ impl<'d> CommandHandler<'d> {
                     } else {
                         let _ = response.push_str("  Last Message: None");
                     }
+                } else {
+                    let _ = response.push_str("MTU not configured");
+                }
+            }
+            CliCommand::MtuBaud(baud_rate) => {
+                info!("CLI: MTU baud rate set to {}", baud_rate);
+                if let Some(ref mtu_mutex) = self.mtu {
+                    let mtu = mtu_mutex.lock().await;
+                    mtu.set_baud_rate(baud_rate).await;
+                    let _ = response.push_str("MTU baud rate set to ");
+                    let mut baud_str = heapless::String::<16>::new();
+                    let _ = write!(baud_str, "{}", baud_rate);
+                    let _ = response.push_str(baud_str.as_str());
+                    let _ = response.push_str(" bps");
                 } else {
                     let _ = response.push_str("MTU not configured");
                 }

@@ -4,14 +4,16 @@ use defmt::info;
 use embassy_nrf::gpio::{Input, Output};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::Instant;
 use heapless::String;
 
 pub struct MeterHandler<'d> {
     config: Mutex<ThreadModeRawMutex, MeterConfig>,
     #[allow(dead_code)]
     clock_pin: Mutex<ThreadModeRawMutex, Input<'d>>,
+    #[allow(dead_code)] // Used in clock detection task via static transmutation
     data_pin: Mutex<ThreadModeRawMutex, Output<'d>>,
+    #[allow(dead_code)] // Used in clock detection task via static transmutation
     activity_led: Mutex<ThreadModeRawMutex, Output<'d>>,
     listening: AtomicBool,
     start_time: Instant,
@@ -38,12 +40,15 @@ impl<'d> MeterHandler<'d> {
         let mut response = String::new();
 
         match command {
+            MeterCommand::Empty => {
+                // Empty command - just return empty response (no error)
+                // This will result in just showing a new prompt
+            }
             MeterCommand::Help => {
                 let _ = response.push_str("Meter commands:\r\n");
                 let _ = response.push_str("  type [sensus|neptune] - Set meter type\r\n");
                 let _ = response.push_str("  message <text> - Set response message\r\n");
                 let _ = response.push_str("  enable/disable - Enable/disable meter\r\n");
-                let _ = response.push_str("  test - Test meter response\r\n");
                 let _ = response.push_str("  status - Show current config");
             }
             MeterCommand::Clear => {
@@ -129,96 +134,9 @@ impl<'d> MeterHandler<'d> {
                 let _ = response.push_str("Meter disabled");
                 info!("Meter: Disabled");
             }
-            MeterCommand::Test => {
-                let config = self.config.lock().await;
-                let _ = response.push_str("Testing meter response:\r\n");
-                let _ = response.push_str("  Message: ");
-                let _ = response.push_str(config.response_message.as_str());
-                let _ = response.push_str("\r\n  Type: ");
-                match config.meter_type {
-                    MeterType::Sensus => {
-                        let _ = response.push_str("Sensus (7E1)");
-                    }
-                    MeterType::Neptune => {
-                        let _ = response.push_str("Neptune (7E2)");
-                    }
-                }
-
-                // Simulate sending the response
-                info!("Meter: Test response simulation");
-                if self
-                    .send_response(&config.response_message, &config.meter_type)
-                    .await
-                    .is_err()
-                {
-                    let _ = response.push_str("\r\n  Error: Failed to send test response");
-                } else {
-                    let _ = response.push_str("\r\n  Test response sent successfully");
-                }
-            }
         }
 
         Ok(response)
-    }
-
-    // Send a response message via GPIO UART simulation
-    async fn send_response(&self, message: &str, meter_type: &MeterType) -> Result<(), ()> {
-        let mut data_pin = self.data_pin.lock().await;
-        let mut activity_led = self.activity_led.lock().await;
-
-        info!("Meter: Sending response: {}", message);
-
-        // Flash activity LED during transmission
-        activity_led.set_low();
-
-        // Send each character in the message
-        for ch in message.chars() {
-            if self
-                .send_uart_char(&mut data_pin, ch as u8, meter_type)
-                .await
-                .is_err()
-            {
-                activity_led.set_high();
-                return Err(());
-            }
-        }
-
-        activity_led.set_high();
-        info!("Meter: Response sent successfully");
-        Ok(())
-    }
-
-    // Send a single character via GPIO UART at 9600 baud
-    async fn send_uart_char(
-        &self,
-        data_pin: &mut Output<'_>,
-        byte: u8,
-        meter_type: &MeterType,
-    ) -> Result<(), ()> {
-        let bit_duration = Duration::from_micros(104); // 9600 baud = ~104μs per bit
-
-        // Build frame based on meter type
-        let frame_bits = self.build_uart_frame(byte, meter_type);
-
-        // Send start bit (low)
-        data_pin.set_low();
-        Timer::after(bit_duration).await;
-
-        // Send data bits and parity/stop bits
-        for &bit in &frame_bits[1..] {
-            if bit == 1 {
-                data_pin.set_high();
-            } else {
-                data_pin.set_low();
-            }
-            Timer::after(bit_duration).await;
-        }
-
-        // Ensure line returns to idle (high)
-        data_pin.set_high();
-        Timer::after(bit_duration).await;
-
-        Ok(())
     }
 
     // Build UART frame with proper framing for meter type
@@ -255,6 +173,22 @@ impl<'d> MeterHandler<'d> {
         }
 
         frame
+    }
+
+    // Build complete response frame buffer for all characters in the message
+    pub async fn build_response_frames(&self) -> heapless::Vec<u8, 2048> {
+        let config = self.config.lock().await;
+        let mut frame_buffer = heapless::Vec::new();
+
+        // Build frames for each character in the response message
+        for ch in config.response_message.chars() {
+            let char_frame = self.build_uart_frame(ch as u8, &config.meter_type);
+            for &bit in &char_frame {
+                let _ = frame_buffer.push(bit);
+            }
+        }
+
+        frame_buffer
     }
 }
 

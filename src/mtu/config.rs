@@ -16,6 +16,9 @@ pub struct MtuConfig {
 
     /// UART framing configuration
     pub framing: UartFraming,
+
+    /// Baud rate for communication
+    pub baud_rate: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -35,6 +38,18 @@ impl UartFraming {
     }
 }
 
+impl MtuConfig {
+    /// Calculate bit duration in microseconds from baud rate
+    pub fn bit_duration_micros(&self) -> u64 {
+        1_000_000 / self.baud_rate as u64
+    }
+
+    /// Get bit duration as Embassy Duration
+    pub fn bit_duration(&self) -> Duration {
+        Duration::from_micros(self.bit_duration_micros())
+    }
+}
+
 impl Default for MtuConfig {
     fn default() -> Self {
         Self {
@@ -43,6 +58,7 @@ impl Default for MtuConfig {
             bit_timeout_ms: 2000,
             runtime: Duration::from_secs(30),
             framing: UartFraming::SevenE1, // Sensus Standard default
+            baud_rate: 1200, // Default to 1200 baud
         }
     }
 }

@@ -284,6 +284,8 @@ impl<'d> Terminal<'d> {
         self.write_line("  mtu_stop    - Stop MTU operation")
             .await?;
         self.write_line("  mtu_status  - Show MTU status").await?;
+        self.write_line("  mtu_baud <rate> - Set MTU baud rate (300-115200, default 1200)")
+            .await?;
         self.write_line("").await?;
         self.write_line("Use TAB to autocomplete commands").await?;
         self.write_line("Use UP/DOWN arrows to navigate command history")
@@ -309,13 +311,10 @@ impl<'d> Terminal<'d> {
             .await?;
         self.write_line("  disable     - Disable meter responses")
             .await?;
-        self.write_line("  test        - Test meter response")
-            .await?;
         self.write_line("").await?;
         self.write_line("Examples:").await?;
         self.write_line("  type sensus").await?;
         self.write_line("  message WATER12345").await?;
-        self.write_line("  test").await?;
         self.write_line("").await?;
         self.write_line("Pin Configuration:").await?;
         self.write_line("  P0.02 - Clock input (from MTU)").await?;

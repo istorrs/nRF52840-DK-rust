@@ -14,6 +14,7 @@ use {defmt_rtt as _, panic_halt as _};
 
 // Import our CLI modules
 use nrf52840_dk_template::cli::Terminal;
+use nrf52840_dk_template::meter::{MeterCommandParser, MeterHandler, MeterConfig};
 
 bind_interrupts!(struct Irqs {
     UARTE1 => embassy_nrf::uarte::InterruptHandler<embassy_nrf::peripherals::UARTE1>;
@@ -30,115 +31,76 @@ async fn clock_detection_task(
     mut clock_led: Output<'static>,
     mut data_pin: Output<'static>,
     mut activity_led: Output<'static>,
+    meter_handler: &'static MeterHandler<'static>,
 ) -> ! {
-    info!("Clock detection task started");
+    info!("Synchronous meter clock detection task started");
 
     let mut pulse_count = 0u32;
     let mut last_pulse_time = embassy_time::Instant::now();
-    let wake_up_threshold = 5; // Minimum pulses to consider wake-up sequence (lower for continuous clock)
-    let pulse_timeout = embassy_time::Duration::from_millis(500); // Much longer timeout - continuous clock should have short gaps
+    let wake_up_threshold = 10; // Pulses to consider start of transmission
+    let pulse_timeout = embassy_time::Duration::from_millis(200); 
+    
+    let mut response_bits: heapless::Vec<u8, 2048> = heapless::Vec::new();
+    let mut bit_index = 0;
+    let mut transmitting = false;
 
     loop {
-        // Wait for any clock signal (both edges like RPI project)
-        clock_pin.wait_for_any_edge().await;
+        // Wait for rising edge of clock (sample on rising edge)
+        clock_pin.wait_for_rising_edge().await;
 
         let now = embassy_time::Instant::now();
 
-        // Check if this pulse is part of a sequence (within timeout)
+        // Flash LED4 briefly for each clock edge
+        clock_led.set_low(); // LED on
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(5)).await;
+        clock_led.set_high(); // LED off
+
+        // Check if this pulse is part of a continuous sequence
         let time_since_last = now.duration_since(last_pulse_time);
-        if time_since_last > pulse_timeout {
-            info!("Pulse sequence reset - gap was {:?}", time_since_last);
-            pulse_count = 0; // Reset count if too much time passed
+        if time_since_last > pulse_timeout && transmitting {
+            info!("Transmission ended - pulse gap was {:?}", time_since_last);
+            transmitting = false;
+            bit_index = 0;
+            pulse_count = 0;
         }
 
         pulse_count += 1;
         last_pulse_time = now;
 
-        // Flash LED4 briefly for each clock edge
-        clock_led.set_low(); // LED on
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(20)).await;
-        clock_led.set_high(); // LED off
+        info!("Clock pulse: {} (transmitting: {})", pulse_count, transmitting);
 
-        info!("Clock edge detected! Pulse count: {} (gap: {:?})", pulse_count, time_since_last);
+        // Check if we should start transmitting (after wake-up sequence)
+        if !transmitting && pulse_count >= wake_up_threshold {
+            // Build response frame buffer based on current config
+            response_bits = meter_handler.build_response_frames().await;
+            transmitting = true;
+            bit_index = 0;
+            pulse_count = 0;
+            activity_led.set_low(); // Start transmission indicator
+            info!("Starting meter transmission - {} bits to send", response_bits.len());
+        }
 
-        // Check if we have a complete wake-up sequence
-        if pulse_count >= wake_up_threshold {
-            info!("Wake-up sequence detected! Sending meter response...");
-            pulse_count = 0; // Reset for next sequence
-
-            // Send automatic response with standard meter message
-            let message =
-                "V;RB00000123;IB12345678;A0000;Z1000;XT0732;MT0661;RR00000100;GX333333;GN000000\r";
-            if (send_meter_response(message, &mut data_pin, &mut activity_led).await).is_err() {
-                info!("Failed to send meter response");
+        // If transmitting, send the next bit on each clock pulse
+        if transmitting && bit_index < response_bits.len() {
+            let bit = response_bits[bit_index];
+            if bit == 1 {
+                data_pin.set_high();
+            } else {
+                data_pin.set_low();
             }
+            bit_index += 1;
+            info!("Sent bit {} (value: {})", bit_index, bit);
 
-            // Wait a bit before detecting next wake-up sequence
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+            // If we've sent all bits, stop transmitting
+            if bit_index >= response_bits.len() {
+                transmitting = false;
+                bit_index = 0;
+                activity_led.set_high(); // End transmission indicator
+                data_pin.set_high(); // Return to idle state
+                info!("Meter transmission complete");
+            }
         }
     }
-}
-
-// Send meter response via GPIO UART simulation
-async fn send_meter_response(
-    message: &str,
-    data_pin: &mut Output<'_>,
-    activity_led: &mut Output<'_>,
-) -> Result<(), ()> {
-    info!("Sending meter response: {}", message);
-
-    // Flash activity LED during transmission
-    activity_led.set_low(); // LED on
-
-    // Send each character in the message using 7E1 framing (Sensus Standard)
-    for ch in message.chars() {
-        if send_uart_char(data_pin, ch as u8).await.is_err() {
-            activity_led.set_high(); // LED off
-            return Err(());
-        }
-    }
-
-    activity_led.set_high(); // LED off
-    info!("Meter response sent successfully");
-    Ok(())
-}
-
-// Send a single character via GPIO UART at 9600 baud with 7E1 framing
-async fn send_uart_char(data_pin: &mut Output<'_>, byte: u8) -> Result<(), ()> {
-    let bit_duration = embassy_time::Duration::from_micros(104); // 9600 baud = ~104μs per bit
-
-    // 7E1 framing: 1 start + 7 data + 1 even parity + 1 stop
-    let data_7bit = byte & 0x7F; // Use only 7 bits
-    let parity = (data_7bit.count_ones() % 2) as u8; // Even parity
-
-    // Send start bit (low)
-    data_pin.set_low();
-    embassy_time::Timer::after(bit_duration).await;
-
-    // Send 7 data bits (LSB first)
-    for i in 0..7 {
-        let bit = (data_7bit >> i) & 1;
-        if bit == 1 {
-            data_pin.set_high();
-        } else {
-            data_pin.set_low();
-        }
-        embassy_time::Timer::after(bit_duration).await;
-    }
-
-    // Send parity bit
-    if parity == 1 {
-        data_pin.set_high();
-    } else {
-        data_pin.set_low();
-    }
-    embassy_time::Timer::after(bit_duration).await;
-
-    // Send stop bit (high)
-    data_pin.set_high();
-    embassy_time::Timer::after(bit_duration).await;
-
-    Ok(())
 }
 
 #[embassy_executor::main]
@@ -246,6 +208,25 @@ async fn main(spawner: Spawner) {
         unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(meter_data_pin) };
     let static_led3 = unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(led3) };
 
+    // Create meter handler for CLI command processing
+    // Note: We can't use the actual GPIO pins here since they're used by the background task
+    // This handler will be used for configuration commands only
+    let meter_config = MeterConfig::default();
+    let dummy_clock_pin = Input::new(p.P0_04, Pull::None); // Unused pin for handler
+    let dummy_data_pin = Output::new(p.P0_05, Level::High, OutputDrive::Standard); // Unused pin
+    let dummy_activity_led = Output::new(p.P0_06, Level::High, OutputDrive::Standard); // Unused pin
+    let mut meter_handler = MeterHandler::new(
+        meter_config,
+        dummy_clock_pin,
+        dummy_data_pin,
+        dummy_activity_led,
+    );
+
+    // Make meter handler static for the background task
+    let static_meter_handler = unsafe { 
+        core::mem::transmute::<&mut MeterHandler<'_>, &'static MeterHandler<'static>>(&mut meter_handler)
+    };
+
     // Spawn background task for clock signal detection
     spawner
         .spawn(clock_detection_task(
@@ -253,6 +234,7 @@ async fn main(spawner: Spawner) {
             static_led4,
             static_data_pin,
             static_led3,
+            static_meter_handler,
         ))
         .unwrap();
 
@@ -272,13 +254,29 @@ async fn main(spawner: Spawner) {
 
                 // Handle character and check if we got a complete command
                 match terminal.handle_char(ch).await {
-                    Ok(Some(_command_line)) => {
-                        // Simple command handling - automatic response mode
-                        let _ = terminal
-                            .write_line(
-                                "Automatic meter mode - responses handled by background task",
-                            )
-                            .await;
+                    Ok(Some(command_line)) => {
+                        // Parse and execute meter commands
+                        let command = MeterCommandParser::parse_command(&command_line);
+                        
+                        match meter_handler.execute_command(command).await {
+                            Ok(response) => {
+                                // Only write response if it's not empty
+                                if !response.is_empty() {
+                                    let _ = terminal.write_line(&response).await;
+                                }
+                            }
+                            Err(_) => {
+                                let _ = terminal.write_line("Command execution error").await;
+                            }
+                        }
+
+                        // Handle special commands that need terminal interaction
+                        if command_line.trim() == "help" || command_line.trim() == "h" {
+                            let _ = terminal.show_meter_help().await;
+                        } else if command_line.trim() == "clear" || command_line.trim() == "cls" {
+                            let _ = terminal.clear_screen().await;
+                        }
+
                         let _ = terminal.print_prompt().await;
                     }
                     Ok(None) => {

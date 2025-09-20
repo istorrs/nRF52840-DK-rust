@@ -27,6 +27,7 @@ pub enum CliCommand {
     MtuStart(Option<u16>), // Optional duration in seconds
     MtuStop,
     MtuStatus,
+    MtuBaud(u32), // Set MTU baud rate
     Empty,
     Unknown(heapless::String<32>),
 }
