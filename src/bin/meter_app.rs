@@ -14,7 +14,6 @@ use {defmt_rtt as _, panic_halt as _};
 
 // Import our CLI modules
 use nrf52840_dk_template::cli::Terminal;
-use nrf52840_dk_template::meter::{MeterConfig, MeterHandler};
 
 bind_interrupts!(struct Irqs {
     UARTE1 => embassy_nrf::uarte::InterruptHandler<embassy_nrf::peripherals::UARTE1>;
@@ -23,6 +22,121 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
+}
+
+#[embassy_executor::task]
+async fn clock_detection_task(
+    mut clock_pin: Input<'static>,
+    mut clock_led: Output<'static>,
+    mut data_pin: Output<'static>,
+    mut activity_led: Output<'static>,
+) -> ! {
+    info!("Clock detection task started");
+
+    let mut pulse_count = 0u32;
+    let mut last_pulse_time = embassy_time::Instant::now();
+    let wake_up_threshold = 10; // Minimum pulses to consider wake-up sequence
+    let pulse_timeout = embassy_time::Duration::from_millis(10); // Longer timeout for pulse sequences
+
+    loop {
+        // Wait for any clock signal (both edges like RPI project)
+        clock_pin.wait_for_any_edge().await;
+
+        let now = embassy_time::Instant::now();
+
+        // Check if this pulse is part of a sequence (within timeout)
+        if now.duration_since(last_pulse_time) > pulse_timeout {
+            pulse_count = 0; // Reset count if too much time passed
+        }
+
+        pulse_count += 1;
+        last_pulse_time = now;
+
+        // Flash LED4 briefly for each clock edge
+        clock_led.set_low(); // LED on
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(20)).await;
+        clock_led.set_high(); // LED off
+
+        info!("Clock edge detected! Pulse count: {}", pulse_count);
+
+        // Check if we have a complete wake-up sequence
+        if pulse_count >= wake_up_threshold {
+            info!("Wake-up sequence detected! Sending meter response...");
+            pulse_count = 0; // Reset for next sequence
+
+            // Send automatic response with standard meter message
+            let message =
+                "V;RB00000123;IB12345678;A0000;Z1000;XT0732;MT0661;RR00000100;GX333333;GN000000\r";
+            if (send_meter_response(message, &mut data_pin, &mut activity_led).await).is_err() {
+                info!("Failed to send meter response");
+            }
+
+            // Wait a bit before detecting next wake-up sequence
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+        }
+    }
+}
+
+// Send meter response via GPIO UART simulation
+async fn send_meter_response(
+    message: &str,
+    data_pin: &mut Output<'_>,
+    activity_led: &mut Output<'_>,
+) -> Result<(), ()> {
+    info!("Sending meter response: {}", message);
+
+    // Flash activity LED during transmission
+    activity_led.set_low(); // LED on
+
+    // Send each character in the message using 7E1 framing (Sensus Standard)
+    for ch in message.chars() {
+        if send_uart_char(data_pin, ch as u8).await.is_err() {
+            activity_led.set_high(); // LED off
+            return Err(());
+        }
+    }
+
+    activity_led.set_high(); // LED off
+    info!("Meter response sent successfully");
+    Ok(())
+}
+
+// Send a single character via GPIO UART at 9600 baud with 7E1 framing
+async fn send_uart_char(data_pin: &mut Output<'_>, byte: u8) -> Result<(), ()> {
+    let bit_duration = embassy_time::Duration::from_micros(104); // 9600 baud = ~104μs per bit
+
+    // 7E1 framing: 1 start + 7 data + 1 even parity + 1 stop
+    let data_7bit = byte & 0x7F; // Use only 7 bits
+    let parity = (data_7bit.count_ones() % 2) as u8; // Even parity
+
+    // Send start bit (low)
+    data_pin.set_low();
+    embassy_time::Timer::after(bit_duration).await;
+
+    // Send 7 data bits (LSB first)
+    for i in 0..7 {
+        let bit = (data_7bit >> i) & 1;
+        if bit == 1 {
+            data_pin.set_high();
+        } else {
+            data_pin.set_low();
+        }
+        embassy_time::Timer::after(bit_duration).await;
+    }
+
+    // Send parity bit
+    if parity == 1 {
+        data_pin.set_high();
+    } else {
+        data_pin.set_low();
+    }
+    embassy_time::Timer::after(bit_duration).await;
+
+    // Send stop bit (high)
+    data_pin.set_high();
+    embassy_time::Timer::after(bit_duration).await;
+
+    Ok(())
 }
 
 #[embassy_executor::main]
@@ -87,8 +201,11 @@ async fn main(spawner: Spawner) {
     // Configure LED3 (P0.15) for meter activity
     let led3 = Output::new(p.P0_15, Level::High, OutputDrive::Standard);
 
+    // Configure LED4 (P0.16) for clock detection
+    let led4 = Output::new(p.P0_16, Level::High, OutputDrive::Standard);
+
     // Configure Meter pins - P0.02 for clock input (from MTU), P0.03 for data output (to MTU)
-    let meter_clock_pin = Input::new(p.P0_02, Pull::Up); // Clock input from MTU
+    let meter_clock_pin = Input::new(p.P0_02, Pull::None); // Clock input from MTU, no pull resistor like RPI project
     let meter_data_pin = Output::new(p.P0_03, Level::High, OutputDrive::Standard); // Data output to MTU
 
     // Configure UART for CLI
@@ -101,12 +218,6 @@ async fn main(spawner: Spawner) {
 
     // Initialize CLI components with meter functionality
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
-    let mut meter_handler = MeterHandler::new(
-        MeterConfig::default(),
-        meter_clock_pin,
-        meter_data_pin,
-        led3,
-    );
 
     // Send welcome message
     let _ = terminal.write_line("").await;
@@ -120,7 +231,28 @@ async fn main(spawner: Spawner) {
     let _ = terminal
         .write_line("Meter Clock: P0.02 (in) | Data: P0.03 (out)")
         .await;
+    let _ = terminal
+        .write_line("Debug LEDs: LED3 (data tx) | LED4 (clock detect)")
+        .await;
     let _ = terminal.print_prompt().await;
+
+    // Make static references for the background task
+    let static_clock_pin =
+        unsafe { core::mem::transmute::<Input<'_>, Input<'static>>(meter_clock_pin) };
+    let static_led4 = unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(led4) };
+    let static_data_pin =
+        unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(meter_data_pin) };
+    let static_led3 = unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(led3) };
+
+    // Spawn background task for clock signal detection
+    spawner
+        .spawn(clock_detection_task(
+            static_clock_pin,
+            static_led4,
+            static_data_pin,
+            static_led3,
+        ))
+        .unwrap();
 
     // Main CLI loop
     loop {
@@ -138,39 +270,13 @@ async fn main(spawner: Spawner) {
 
                 // Handle character and check if we got a complete command
                 match terminal.handle_char(ch).await {
-                    Ok(Some(command_line)) => {
-                        // Parse and execute the command
-                        let command =
-                            nrf52840_dk_template::meter::parser::MeterCommandParser::parse_command(
-                                &command_line,
-                            );
-
-                        // Clone command for later pattern matching
-                        let command_clone = command.clone();
-
-                        match meter_handler.execute_command(command).await {
-                            Ok(response) => {
-                                // Only write response if it's not empty
-                                if !response.is_empty() {
-                                    let _ = terminal.write_line(&response).await;
-                                }
-                            }
-                            Err(_) => {
-                                let _ = terminal.write_line("Command execution error.").await;
-                            }
-                        }
-
-                        // Handle special commands that need terminal interaction
-                        match command_clone {
-                            nrf52840_dk_template::meter::MeterCommand::Help => {
-                                let _ = terminal.show_meter_help().await;
-                            }
-                            nrf52840_dk_template::meter::MeterCommand::Clear => {
-                                let _ = terminal.clear_screen().await;
-                            }
-                            _ => {}
-                        }
-
+                    Ok(Some(_command_line)) => {
+                        // Simple command handling - automatic response mode
+                        let _ = terminal
+                            .write_line(
+                                "Automatic meter mode - responses handled by background task",
+                            )
+                            .await;
                         let _ = terminal.print_prompt().await;
                     }
                     Ok(None) => {

@@ -106,12 +106,18 @@ async fn main(spawner: Spawner) {
     let uarte = Uarte::new(p.UARTE1, Irqs, p.P1_14, p.P1_15, uart_config);
     info!("✅ Peripherals configured");
 
+    // Configure MTU debug LEDs (use onboard LEDs)
+    // LED1 (P0.13) is already used for UART RX, LED2 (P0.14) for UART TX
+    // Use LED3 (P0.15) for clock debug, LED4 (P0.16) for data debug
+    let led_clock = led3; // LED3 for clock activity
+    let led_data = led4; // LED4 for data activity
+
     // Initialize CLI components with LEDs, buttons, MTU, and SoftDevice
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
     let mut command_handler = CommandHandler::new()
-        .with_leds(led3, led4)
         .with_buttons(button1, button2, button3, button4)
         .with_mtu(mtu_clock_pin, mtu_data_pin)
+        .with_mtu_debug_leds(led_clock, led_data)
         .with_softdevice(sd);
 
     // Send welcome message
@@ -124,6 +130,9 @@ async fn main(spawner: Spawner) {
         .write_line("Use TAB for command autocompletion")
         .await;
     let _ = terminal.write_line("MTU Clock: P0.02 | Data: P0.03").await;
+    let _ = terminal
+        .write_line("Debug LEDs: LED3 (clock) | LED4 (data)")
+        .await;
     let _ = terminal.print_prompt().await;
 
     // Main CLI loop

@@ -1,5 +1,5 @@
 use super::config::MtuConfig;
-use super::error::{MtuError, MtuResult};
+use super::error::MtuResult;
 use super::uart_framing::{extract_char_from_frame, UartFrame};
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
@@ -49,117 +49,126 @@ impl GpioMtu {
         *msg = None;
     }
 
-    // Actual MTU operation using GPIO pins
+    // Actual MTU operation using GPIO pins - continuous clock at baud rate
     pub async fn run_mtu_operation(
         &self,
         duration: Duration,
         clock_pin: &mut Output<'_>,
         data_pin: &Input<'_>,
+        mut clock_led: Option<&mut Output<'_>>,
+        mut data_led: Option<&mut Output<'_>>,
     ) -> MtuResult<()> {
-        info!("MTU: Starting GPIO-based operation for {:?}", duration);
+        info!(
+            "MTU: Starting continuous clock generation at 9600 baud for {:?}",
+            duration
+        );
 
         let start_time = Instant::now();
+        let bit_duration = Duration::from_micros(104); // 9600 baud timing
 
         // Power up delay as specified in config
         Timer::after(Duration::from_millis(self.config.power_up_delay_ms)).await;
 
-        // Main MTU loop - wake up meter and read response
-        while start_time.elapsed() < duration && self.running.load(Ordering::Relaxed) {
-            info!("MTU: Waking up meter");
+        // UART frame assembly state
+        let mut frame_bits = heapless::Vec::<u8, 16>::new();
+        let mut message_chars = heapless::Vec::<char, 256>::new();
+        let mut in_frame = false;
+        let mut frame_bit_count = 0;
+        let expected_frame_bits = self.config.framing.bits_per_frame();
 
-            // Wake up the meter by sending clock pulses
-            if let Err(e) = self.wake_up_meter(clock_pin).await {
-                info!("MTU: Wake up failed: {:?}", e);
-                Timer::after(self.config.cycle_duration).await;
-                continue;
+        // Synchronous clock generation and data sampling with UART framing
+        while start_time.elapsed() < duration && self.running.load(Ordering::Relaxed) {
+            // Send clock pulse (high then low)
+            clock_pin.set_high();
+            if let Some(led) = clock_led.as_mut() {
+                led.set_low(); // LED on during clock high
+            }
+            Timer::after(bit_duration).await;
+
+            clock_pin.set_low();
+            if let Some(led) = clock_led.as_mut() {
+                led.set_high(); // LED off during clock low
+            }
+            Timer::after(bit_duration).await;
+
+            // Sample data line after clock pulse
+            let data_bit = if data_pin.is_high() { 1 } else { 0 };
+
+            // UART frame detection and assembly
+            if !in_frame && data_bit == 0 {
+                // Start bit detected (high to low transition)
+                in_frame = true;
+                frame_bits.clear();
+                frame_bit_count = 0;
+                if let Some(led) = data_led.as_mut() {
+                    led.set_low(); // LED on for frame start
+                }
+                info!("MTU: Start bit detected, beginning frame");
             }
 
-            // Try to read a complete UART frame from the meter
-            match self.read_uart_frame(data_pin).await {
-                Ok(frame) => {
-                    // Extract character from frame using framing protocol
-                    match extract_char_from_frame(&frame) {
-                        Ok(ch) => {
-                            info!("MTU: Received character: {}", ch as char);
-                            // Build up message string
-                            let mut message = String::<256>::new();
-                            if message.push(ch).is_err() {
-                                return Err(MtuError::FramingError);
-                            }
+            if in_frame {
+                // Collect bits for current frame
+                if frame_bits.push(data_bit).is_err() {
+                    info!("MTU: Frame buffer overflow, resetting");
+                    in_frame = false;
+                    continue;
+                }
+                frame_bit_count += 1;
 
-                            // Store the message
-                            {
-                                let mut msg = self.last_message.lock().await;
-                                *msg = Some(message);
+                // Check if we have a complete frame
+                if frame_bit_count >= expected_frame_bits {
+                    in_frame = false;
+                    if let Some(led) = data_led.as_mut() {
+                        led.set_high(); // LED off for frame end
+                    }
+
+                    // Process complete frame
+                    match UartFrame::new(frame_bits.clone(), self.config.framing) {
+                        Ok(frame) => {
+                            match extract_char_from_frame(&frame) {
+                                Ok(ch) => {
+                                    info!("MTU: Received character: '{}'", ch as char);
+                                    if message_chars.push(ch).is_err() {
+                                        info!("MTU: Message buffer full");
+                                    }
+
+                                    // Check for end of message (carriage return)
+                                    if ch == '\r' {
+                                        let message: String<256> = message_chars.iter().collect();
+                                        info!(
+                                            "MTU: Complete message received: {}",
+                                            message.as_str()
+                                        );
+
+                                        // Store the message
+                                        {
+                                            let mut msg = self.last_message.lock().await;
+                                            *msg = Some(message);
+                                        }
+
+                                        message_chars.clear();
+                                    }
+                                }
+                                Err(_) => {
+                                    info!("MTU: Invalid character in frame");
+                                }
                             }
                         }
                         Err(_) => {
-                            info!("MTU: Invalid frame received");
+                            info!("MTU: Invalid UART frame");
                         }
                     }
                 }
-                Err(e) => {
-                    info!("MTU: Read error: {:?}", e);
-                }
-            }
-
-            // Wait for next cycle
-            Timer::after(self.config.cycle_duration).await;
-        }
-
-        info!("MTU: Operation completed");
-        Ok(())
-    }
-
-    // Wake up the meter by sending clock pulses
-    async fn wake_up_meter(&self, clock_pin: &mut Output<'_>) -> MtuResult<()> {
-        // Send wake-up clock pulses (typically 10-20 pulses)
-        for _ in 0..15 {
-            clock_pin.set_high();
-            Timer::after(Duration::from_micros(104)).await; // ~9600 baud timing
-            clock_pin.set_low();
-            Timer::after(Duration::from_micros(104)).await;
-        }
-
-        info!("MTU: Wake-up pulses sent");
-        Ok(())
-    }
-
-    // Read a complete UART frame from the meter
-    async fn read_uart_frame(&self, data_pin: &Input<'_>) -> MtuResult<UartFrame> {
-        let mut frame_bits = heapless::Vec::<u8, 16>::new();
-
-        // Wait for start bit (data line goes low)
-        let timeout = Instant::now() + Duration::from_millis(self.config.bit_timeout_ms);
-        while data_pin.is_high() && Instant::now() < timeout {
-            Timer::after(Duration::from_micros(10)).await;
-        }
-
-        if Instant::now() >= timeout {
-            return Err(MtuError::TimeoutError);
-        }
-
-        info!("MTU: Start bit detected");
-
-        // Sample at 9600 baud (104 microseconds per bit)
-        let bit_duration = Duration::from_micros(104);
-
-        // Wait half bit time to get to middle of start bit
-        Timer::after(Duration::from_micros(52)).await;
-
-        // Sample bits based on framing configuration
-        let expected_bits = self.config.framing.bits_per_frame();
-        for _ in 0..expected_bits {
-            Timer::after(bit_duration).await;
-            let bit_value = if data_pin.is_high() { 1 } else { 0 }; // UART logic levels
-            if frame_bits.push(bit_value).is_err() {
-                return Err(MtuError::FramingError);
             }
         }
 
-        // Create frame with collected bits
-        let frame = UartFrame::new(frame_bits, self.config.framing)?;
-        info!("MTU: Frame received with {} bits", expected_bits);
-        Ok(frame)
+        // Set clock to idle state
+        clock_pin.set_high();
+        if let Some(led) = clock_led.as_mut() {
+            led.set_high(); // LED off
+        }
+
+        info!("MTU: Operation completed after {:?}", start_time.elapsed());
+        Ok(())
     }
 }
