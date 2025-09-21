@@ -96,55 +96,59 @@ impl GpioMtu {
         let mut message_chars = heapless::Vec::<char, 256>::new();
         let mut in_frame = false;
         let mut frame_bit_count = 0;
-        let expected_frame_bits = framing.bits_per_frame();
+        let mut last_data_bit = 1; // Assume line starts high (idle state)
+        let mut clock_pulse_index = 0u32; // Track clock pulse index for debugging
+        let expected_frame_bits = framing.bits_per_frame() - 1; // Exclude start bit from collection
 
         // Synchronous clock generation and data sampling with UART framing
         while start_time.elapsed() < duration && self.running.load(Ordering::Relaxed) {
-            // Send clock pulse (high then low)
+            clock_pulse_index += 1;
+            let timestamp = start_time.elapsed();
+            
+            // Send clock pulse (rising edge)
             clock_pin.set_high();
             if let Some(led) = clock_led.as_mut() {
                 led.set_low(); // LED on during clock high
             }
-            Timer::after(bit_duration).await;
-
+            
+            // Wait half the bit duration, then sample in the middle of the bit period
+            Timer::after(bit_duration / 2).await;
+            
+            // Sample data line in the middle of the bit period when signal is stable
+            let data_bit = if data_pin.is_high() { 1 } else { 0 };
+            let pin_state = if data_bit == 1 { "HIGH" } else { "LOW" };
+            
+            // Set clock low and wait the remaining half bit duration
             clock_pin.set_low();
             if let Some(led) = clock_led.as_mut() {
                 led.set_high(); // LED off during clock low
             }
-            Timer::after(bit_duration).await;
+            Timer::after(bit_duration / 2).await;
 
-            // Sample data line after clock pulse
-            let data_bit = if data_pin.is_high() { 1 } else { 0 };
-
-            // Log data line state periodically for debugging
-            static mut DEBUG_COUNTER: u32 = 0;
-            unsafe {
-                DEBUG_COUNTER += 1;
-                if DEBUG_COUNTER % 1000 == 0 {
-                    info!("MTU: Data line sample #{}: {} (pin level: {})", DEBUG_COUNTER, data_bit, if data_pin.is_high() { "HIGH" } else { "LOW" });
-                }
-            }
+            // Log every received bit with timestamp and clock pulse index
+            info!("MTU: Clock #{} @ {:?}: RX bit {} (pin: {})", 
+                  clock_pulse_index, timestamp, data_bit, pin_state);
 
             // UART frame detection and assembly
-            if !in_frame && data_bit == 0 {
-                // Start bit detected (high to low transition)
+            // Only detect start bit on high-to-low transition (not just any low bit)
+            if !in_frame && last_data_bit == 1 && data_bit == 0 {
                 in_frame = true;
                 frame_bits.clear();
                 frame_bit_count = 0;
                 if let Some(led) = data_led.as_mut() {
                     led.set_low(); // LED on for frame start
                 }
-                info!("MTU: Start bit detected, beginning frame");
-            }
-
-            if in_frame {
-                // Collect bits for current frame
+                info!("MTU: Clock #{} @ {:?}: START BIT detected (transition 1->0)", clock_pulse_index, timestamp);
+                // Don't add the start bit to frame_bits - it's just for synchronization
+            } else if in_frame {
+                // Collect bits for current frame (excluding start bit)
                 if frame_bits.push(data_bit).is_err() {
-                    info!("MTU: Frame buffer overflow, resetting");
+                    info!("MTU: Clock #{} @ {:?}: Frame buffer overflow, resetting", clock_pulse_index, timestamp);
                     in_frame = false;
                     continue;
                 }
                 frame_bit_count += 1;
+                info!("MTU: Clock #{} @ {:?}: Frame bit #{}: {}", clock_pulse_index, timestamp, frame_bit_count, data_bit);
 
                 // Check if we have a complete frame
                 if frame_bit_count >= expected_frame_bits {
@@ -152,13 +156,17 @@ impl GpioMtu {
                     if let Some(led) = data_led.as_mut() {
                         led.set_high(); // LED off for frame end
                     }
+                    info!("MTU: Clock #{} @ {:?}: FRAME COMPLETE ({} bits): [{}]", 
+                          clock_pulse_index, timestamp, frame_bit_count, 
+                          frame_bits.iter().map(|&b| if b == 1 { '1' } else { '0' }).collect::<heapless::String<32>>().as_str());
 
                     // Process complete frame
                     match UartFrame::new(frame_bits.clone(), framing) {
                         Ok(frame) => {
                             match extract_char_from_frame(&frame) {
                                 Ok(ch) => {
-                                    info!("MTU: Received character: '{}'", ch as char);
+                                    info!("MTU: Clock #{} @ {:?}: DECODED character: '{}' (ASCII {})", 
+                                          clock_pulse_index, timestamp, ch as char, ch as u8);
                                     if message_chars.push(ch).is_err() {
                                         info!("MTU: Message buffer full");
                                     }
@@ -167,8 +175,8 @@ impl GpioMtu {
                                     if ch == '\r' {
                                         let message: String<256> = message_chars.iter().collect();
                                         info!(
-                                            "MTU: Complete message received: {}",
-                                            message.as_str()
+                                            "MTU: Clock #{} @ {:?}: COMPLETE MESSAGE received: '{}'",
+                                            clock_pulse_index, timestamp, message.as_str()
                                         );
 
                                         // Store the message
@@ -181,16 +189,23 @@ impl GpioMtu {
                                     }
                                 }
                                 Err(_) => {
-                                    info!("MTU: Invalid character in frame");
+                                    info!("MTU: Clock #{} @ {:?}: INVALID character in frame: [{}]", 
+                                          clock_pulse_index, timestamp, 
+                                          frame_bits.iter().map(|&b| if b == 1 { '1' } else { '0' }).collect::<heapless::String<32>>().as_str());
                                 }
                             }
                         }
                         Err(_) => {
-                            info!("MTU: Invalid UART frame");
+                            info!("MTU: Clock #{} @ {:?}: INVALID UART frame: [{}]", 
+                                  clock_pulse_index, timestamp, 
+                                  frame_bits.iter().map(|&b| if b == 1 { '1' } else { '0' }).collect::<heapless::String<32>>().as_str());
                         }
                     }
                 }
             }
+            
+            // Update last data bit for transition detection
+            last_data_bit = data_bit;
         }
 
         // Set clock to idle state

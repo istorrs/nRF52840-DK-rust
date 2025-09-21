@@ -146,9 +146,10 @@ impl<'d> MeterHandler<'d> {
         // Start bit
         let _ = frame.push(0);
 
-        // Data bits (LSB first)
-        for i in 0..8 {
-            let bit = (byte >> i) & 1;
+        // Data bits (LSB first) - only 7 bits for 7E1/7E2 framing
+        let data_7bit = byte & 0x7F; // Mask to 7 bits
+        for i in 0..7 {
+            let bit = (data_7bit >> i) & 1;
             let _ = frame.push(bit);
         }
 
@@ -156,15 +157,13 @@ impl<'d> MeterHandler<'d> {
         match meter_type {
             MeterType::Sensus => {
                 // 7E1: 7 data bits + even parity + 1 stop bit
-                // Calculate even parity for lower 7 bits
-                let data_7bit = byte & 0x7F;
+                // Calculate even parity for the 7 data bits
                 let parity = (data_7bit.count_ones() % 2) as u8;
                 let _ = frame.push(parity);
                 let _ = frame.push(1); // stop bit
             }
             MeterType::Neptune => {
                 // 7E2: 7 data bits + even parity + 2 stop bits
-                let data_7bit = byte & 0x7F;
                 let parity = (data_7bit.count_ones() % 2) as u8;
                 let _ = frame.push(parity);
                 let _ = frame.push(1); // stop bit 1
@@ -181,13 +180,18 @@ impl<'d> MeterHandler<'d> {
         let mut frame_buffer = heapless::Vec::new();
 
         // Build frames for each character in the response message
-        for ch in config.response_message.chars() {
+        for (char_index, ch) in config.response_message.chars().enumerate() {
             let char_frame = self.build_uart_frame(ch as u8, &config.meter_type);
+            defmt::info!("Meter: Building frame for char #{}: '{}' (ASCII {}) -> {} bits: [{}]", 
+                        char_index + 1, ch, ch as u8, char_frame.len(),
+                        char_frame.iter().map(|&b| if b == 1 { '1' } else { '0' }).collect::<heapless::String<32>>().as_str());
             for &bit in &char_frame {
                 let _ = frame_buffer.push(bit);
             }
         }
 
+        defmt::info!("Meter: Complete frame buffer: {} total bits for {} characters", 
+                    frame_buffer.len(), config.response_message.len());
         frame_buffer
     }
 }

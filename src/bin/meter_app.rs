@@ -12,6 +12,11 @@ use embassy_time::{Duration, Timer};
 use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
+// Defmt timestamp provider using embassy-time
+defmt::timestamp!("{=u64:us}", {
+    embassy_time::Instant::now().as_micros()
+});
+
 // Import our CLI modules
 use nrf52840_dk_template::cli::Terminal;
 use nrf52840_dk_template::meter::{MeterCommandParser, MeterHandler, MeterConfig};
@@ -58,7 +63,7 @@ async fn clock_detection_task(
         // Check if this pulse is part of a continuous sequence
         let time_since_last = now.duration_since(last_pulse_time);
         if time_since_last > pulse_timeout && transmitting {
-            info!("Transmission ended - pulse gap was {:?}", time_since_last);
+            info!("Meter: @ {:?}: Transmission ended - pulse gap was {:?}", now, time_since_last);
             transmitting = false;
             bit_index = 0;
             pulse_count = 0;
@@ -67,7 +72,7 @@ async fn clock_detection_task(
         pulse_count += 1;
         last_pulse_time = now;
 
-        info!("Clock pulse: {} (transmitting: {})", pulse_count, transmitting);
+        info!("Meter: @ {:?}: Clock pulse #{} (transmitting: {})", now, pulse_count, transmitting);
 
         // Check if we should start transmitting (after wake-up sequence)
         if !transmitting && pulse_count >= wake_up_threshold {
@@ -75,9 +80,23 @@ async fn clock_detection_task(
             response_bits = meter_handler.build_response_frames().await;
             transmitting = true;
             bit_index = 0;
-            pulse_count = 0;
+            // Don't reset pulse_count - keep counting continuously for timing correlation
             activity_led.set_low(); // Start transmission indicator
-            info!("Starting meter transmission - {} bits to send", response_bits.len());
+            info!("Meter: @ {:?}: Starting transmission - {} bits to send", now, response_bits.len());
+            
+            // Pre-set the data pin for the first bit (start bit)
+            if response_bits.len() > 0 {
+                let bit = response_bits[0];
+                if bit == 1 {
+                    data_pin.set_high();
+                } else {
+                    data_pin.set_low();
+                }
+                bit_index = 1; // We've already set bit 0
+                
+                info!("Meter: @ {:?}: Clock #{} -> TX bit #{} (value: {}) [char #1, bit #1 in char]", 
+                      now, 0, 1, bit);
+            }
         }
 
         // If transmitting, send the next bit on each clock pulse
@@ -89,15 +108,22 @@ async fn clock_detection_task(
                 data_pin.set_low();
             }
             bit_index += 1;
-            info!("Sent bit {} (value: {})", bit_index, bit);
+            
+            // Calculate which character and bit position we're sending
+            let char_index = (bit_index - 1) / 10; // 10 bits per character for 7E1
+            let bit_in_char = (bit_index - 1) % 10 + 1;
+            
+            info!("Meter: @ {:?}: Clock #{} -> TX bit #{} (value: {}) [char #{}, bit #{} in char]", 
+                  now, pulse_count, bit_index, bit, char_index + 1, bit_in_char);
 
-            // If we've sent all bits, stop transmitting
+            // If we've sent all bits, stop transmitting and reset for next cycle
             if bit_index >= response_bits.len() {
                 transmitting = false;
                 bit_index = 0;
+                pulse_count = 0; // Reset pulse count to require new wake-up sequence
                 activity_led.set_high(); // End transmission indicator
                 data_pin.set_high(); // Return to idle state
-                info!("Meter transmission complete");
+                info!("Meter: @ {:?}: Transmission complete - returned to idle state, reset pulse count", now);
             }
         }
     }

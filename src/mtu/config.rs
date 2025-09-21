@@ -54,7 +54,7 @@ impl Default for MtuConfig {
     fn default() -> Self {
         Self {
             cycle_duration: Duration::from_micros(1000), // 1ms period = 500Hz
-            power_up_delay_ms: 500,
+            power_up_delay_ms: 10, // Very short delay to be ready before meter starts
             bit_timeout_ms: 2000,
             runtime: Duration::from_secs(30),
             framing: UartFraming::SevenE1, // Sensus Standard default

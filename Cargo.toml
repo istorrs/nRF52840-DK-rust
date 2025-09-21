@@ -58,7 +58,7 @@ codegen-units = 1
 opt-level = 's'
 
 [features]
-default = ["cortex-m/critical-section-single-core"]
+default = []
 # GPIO feature enables cortex-m critical section for main binary
 gpio = ["cortex-m/critical-section-single-core"]
 # BLE feature for the BLE binary (nrf-softdevice provides critical-section-impl)

@@ -12,6 +12,11 @@ use embassy_time::{Duration, Timer};
 use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
+// Defmt timestamp provider using embassy-time
+defmt::timestamp!("{=u64:us}", {
+    embassy_time::Instant::now().as_micros()
+});
+
 // Import our CLI modules
 use nrf52840_dk_template::cli::{CliError, CommandHandler, Terminal};
 
@@ -96,7 +101,7 @@ async fn main(spawner: Spawner) {
 
     // Configure MTU pins (P0.02 for clock out, P0.03 for data in)
     let mtu_clock_pin = Output::new(p.P0_02, Level::Low, OutputDrive::Standard);
-    let mtu_data_pin = Input::new(p.P0_03, Pull::Up); // Pull-up for proper UART idle state
+    let mtu_data_pin = Input::new(p.P0_03, Pull::None); // No pull resistor - meter drives the line
 
     // Configure UART for CLI
     let mut uart_config = uarte::Config::default();
