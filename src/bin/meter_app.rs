@@ -356,8 +356,8 @@ async fn main(spawner: Spawner) {
     // Spawn LED and logging task (lower priority)
     spawner
         .spawn(led_logging_task(
-            static_led4,
-            static_led3,
+            static_led4, // Clock LED (brief flash on each pulse)
+            static_led3, // Activity LED (on during transmission)
             event_receiver,
         ))
         .unwrap();

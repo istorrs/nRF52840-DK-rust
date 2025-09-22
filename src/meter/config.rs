@@ -27,15 +27,8 @@ pub struct MeterConfig {
 impl Default for MeterConfig {
     fn default() -> Self {
         let mut default_message = String::new();
-        // Test pattern: 3 characters with recognizable bit patterns + carriage return
-        // 0x55 = 01010101 (alternating pattern)
-        // 0x33 = 00110011 (two bits pattern)
-        // 0x0F = 00001111 (four bits pattern)
-        // 0x0D = 00001101 (carriage return)
-        let _ = default_message.push(0x55 as char);
-        let _ = default_message.push(0x33 as char);
-        let _ = default_message.push(0x0F as char);
-        let _ = default_message.push('\r'); // End message marker
+        // Realistic water meter response message
+        let _ = default_message.push_str("V;RB00000200;IB61564400;A1000;Z3214;XT0746;MT0683;RR00000000;GX000000;GN000000\r");
 
         Self {
             meter_type: MeterType::Sensus,
