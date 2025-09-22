@@ -71,6 +71,11 @@ async fn fast_clock_response_task(
         // Check timeout immediately
         let time_since_last = now.duration_since(last_pulse_time);
         if time_since_last > pulse_timeout && transmitting {
+            warn!(
+                "Meter: Transmission timeout after {}ms, stopping transmission at bit {}",
+                time_since_last.as_millis(),
+                bit_index
+            );
             transmitting = false;
             bit_index = 0;
             pulse_count = 0;
@@ -82,6 +87,7 @@ async fn fast_clock_response_task(
         // Check if we should start transmitting (after wake-up sequence)
         if !transmitting && pulse_count >= wake_up_threshold {
             if response_bits.is_empty() {
+                warn!("Meter: Response buffer empty, rebuilding response frames");
                 response_bits = meter_handler.build_response_frames().await;
             }
             transmitting = true;
@@ -383,6 +389,7 @@ async fn main(spawner: Spawner) {
                                 }
                             }
                             Err(_) => {
+                                error!("Meter: Command execution error");
                                 let _ = terminal.write_line("Command execution error").await;
                             }
                         }
@@ -401,6 +408,7 @@ async fn main(spawner: Spawner) {
                     }
                     Err(_) => {
                         // Handle error
+                        error!("Meter: Terminal input error");
                         let _ = terminal.write_line("Input error").await;
                         let _ = terminal.print_prompt().await;
                     }
@@ -408,6 +416,7 @@ async fn main(spawner: Spawner) {
             }
             Err(_) => {
                 // No LED activity on UART read error (no data received)
+                // This is expected when no data is available, so we don't log it as an error
                 // Continue on error
             }
         }

@@ -1,7 +1,7 @@
 use super::{CliCommand, CliError};
 use core::fmt::Write;
 use cortex_m::peripheral::SCB;
-use defmt::info;
+use defmt::{error, info};
 use embassy_nrf::gpio::{Input, Output};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -95,7 +95,7 @@ impl<'d> CommandHandler<'d> {
     pub async fn execute_command(
         &mut self,
         command: CliCommand,
-    ) -> Result<heapless::String<256>, CliError> {
+    ) -> Result<heapless::String<512>, CliError> {
         let mut response = heapless::String::new();
 
         match command {
@@ -339,7 +339,7 @@ impl<'d> CommandHandler<'d> {
                             .await
                         {
                             let _ = response.push_str("\r\nError: MTU operation failed");
-                            info!("MTU operation error: {:?}", e);
+                            error!("MTU operation error: {:?}", e);
                         }
                     } else {
                         let _ = response.push_str("\r\nError: MTU GPIO pins not configured");
@@ -365,7 +365,7 @@ impl<'d> CommandHandler<'d> {
                     let baud_rate = mtu.get_baud_rate().await;
                     let expected_message = mtu.get_expected_message().await;
                     let (successful, corrupted) = mtu.get_stats().await;
-                    let total_reads = successful + corrupted;
+                    let _total_reads = successful + corrupted;
 
                     let _ = response.push_str("MTU Status:\r\n");
                     let _ = response.push_str("  State: ");
@@ -393,8 +393,9 @@ impl<'d> CommandHandler<'d> {
                     let _ = write_num(&mut response, successful as u64);
                     let _ = response.push_str("\r\n    Corrupted reads: ");
                     let _ = write_num(&mut response, corrupted as u64);
-                    let _ = response.push_str("\r\n    Total reads: ");
-                    let _ = write_num(&mut response, total_reads as u64);
+
+                    // Show success rate if we have any reads
+                    let total_reads = successful + corrupted;
                     if total_reads > 0 {
                         let success_rate = (successful as f32 / total_reads as f32) * 100.0;
                         let _ = response.push_str("\r\n    Success rate: ");
@@ -468,7 +469,7 @@ impl<'d> CommandHandler<'d> {
                             Err(e) => {
                                 let _ = response.push_str("MTU test failed: ");
                                 let _ = response.push_str("Error during test execution");
-                                info!("MTU test error: {:?}", e);
+                                error!("MTU test error: {:?}", e);
                             }
                         }
                     } else {
@@ -580,7 +581,7 @@ impl<'d> CommandHandler<'d> {
                     Ok(discovered_devices)
                 }
                 Err(e) => {
-                    info!("BLE scan error: {:?}", e);
+                    error!("BLE scan error: {:?}", e);
                     Err(CliError::UartError)
                 }
             }
@@ -592,7 +593,7 @@ impl<'d> CommandHandler<'d> {
 }
 
 // Helper function to write numbers to string without using std::fmt
-fn write_num(s: &mut String<256>, mut num: u64) -> Result<(), ()> {
+fn write_num(s: &mut String<512>, mut num: u64) -> Result<(), ()> {
     if num == 0 {
         return s.push('0').map_err(|_| ());
     }
@@ -611,7 +612,7 @@ fn write_num(s: &mut String<256>, mut num: u64) -> Result<(), ()> {
 }
 
 // Helper function to write hex byte to string
-fn write_hex_byte(s: &mut String<256>, byte: u8) -> Result<(), ()> {
+fn write_hex_byte(s: &mut String<512>, byte: u8) -> Result<(), ()> {
     let hex_chars = b"0123456789abcdef";
     let high = (byte >> 4) & 0x0f;
     let low = byte & 0x0f;

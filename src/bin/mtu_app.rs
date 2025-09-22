@@ -172,6 +172,7 @@ async fn main(spawner: Spawner) {
                                 }
                             }
                             Err(CliError::InvalidCommand) => {
+                                warn!("MTU: Invalid CLI command received");
                                 let _ = terminal
                                     .write_line(
                                         "Invalid command. Type 'help' for available commands.",
@@ -179,6 +180,7 @@ async fn main(spawner: Spawner) {
                                     .await;
                             }
                             Err(_) => {
+                                error!("MTU: CLI command execution error");
                                 let _ = terminal.write_line("Command execution error.").await;
                             }
                         }
@@ -201,6 +203,7 @@ async fn main(spawner: Spawner) {
                     }
                     Err(_) => {
                         // Handle error
+                        error!("MTU: Terminal input error");
                         let _ = terminal.write_line("Input error").await;
                         let _ = terminal.print_prompt().await;
                     }
@@ -208,6 +211,7 @@ async fn main(spawner: Spawner) {
             }
             Err(_) => {
                 // No LED activity on UART read error (no data received)
+                // This is expected when no data is available, so we don't log it as an error
                 // Continue on error
             }
         }

@@ -2,7 +2,7 @@ use super::config::MtuConfig;
 use super::error::MtuResult;
 use super::uart_framing::{extract_char_from_frame, UartFrame};
 use core::sync::atomic::{AtomicBool, Ordering};
-use defmt::info;
+use defmt::{error, info, warn};
 use embassy_nrf::gpio::{Input, Output};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
@@ -110,7 +110,7 @@ impl GpioMtu {
                 true
             } else {
                 config.corrupted_reads += 1;
-                info!(
+                warn!(
                     "MTU: Message CORRUPTED - Expected: '{}', Received: '{}' - Stats: {}/{}",
                     expected.as_str(),
                     received.as_str(),
@@ -121,7 +121,7 @@ impl GpioMtu {
             }
         } else {
             config.corrupted_reads += 1;
-            info!(
+            warn!(
                 "MTU: Message CORRUPTED - No message received - Stats: {}/{}",
                 config.successful_reads,
                 config.successful_reads + config.corrupted_reads
@@ -179,20 +179,20 @@ impl GpioMtu {
                     } else {
                         corrupted_messages += 1;
                         if let Some(received) = received_message {
-                            info!(
+                            warn!(
                                 "MTU: Test {}: CORRUPTED - Received: '{}', Expected: '{}'",
                                 iteration,
                                 received.as_str(),
                                 expected_message.as_str()
                             );
                         } else {
-                            info!("MTU: Test {}: CORRUPTED - No message received", iteration);
+                            warn!("MTU: Test {}: CORRUPTED - No message received", iteration);
                         }
                     }
                 }
                 Err(e) => {
                     corrupted_messages += 1;
-                    info!("MTU: Test {}: ERROR - Operation failed: {:?}", iteration, e);
+                    error!("MTU: Test {}: ERROR - Operation failed: {:?}", iteration, e);
                 }
             }
 
@@ -284,7 +284,7 @@ impl GpioMtu {
                 info!("MTU: Data task completed (message received)");
             }
             Either::Second(_) => {
-                info!("MTU: Operation timeout reached");
+                warn!("MTU: Operation timeout reached");
             }
         }
 
@@ -348,7 +348,7 @@ impl GpioMtu {
 
             // Send sampled bit to data processing task (like RPI line 293-295)
             if bit_sender.try_send(data_bit).is_err() {
-                info!("MTU: Bit queue full, dropping bit");
+                warn!("MTU: Bit queue full, dropping bit");
             }
 
             // Clock HIGH phase and sample data (like RPI line 283-295)
@@ -439,14 +439,14 @@ impl GpioMtu {
                         //info!("MTU: UART bit {}: {}", bits_received - 1, bit_val);
                     }
                     Either::Second(_) => {
-                        info!("MTU: Timeout waiting for UART bit {}", bits_received);
+                        warn!("MTU: Timeout waiting for UART bit {}", bits_received);
                         break;
                     }
                 }
             }
 
             if bits_received != frame_size {
-                info!(
+                warn!(
                     "MTU: Incomplete frame received ({}/{} bits)",
                     bits_received, frame_size
                 );
@@ -487,14 +487,14 @@ impl GpioMtu {
                             }
                         }
                         Err(e) => {
-                            info!("MTU: Failed to extract character from frame: {:?}", e);
+                            error!("MTU: Failed to extract character from frame: {:?}", e);
                             continue;
                         }
                     }
                 }
                 Err(e) => {
-                    info!("MTU: Invalid UART frame: {:?}", e);
-                    info!("MTU: Invalid frame bits: {:?}", frame_bits.as_slice());
+                    error!("MTU: Invalid UART frame: {:?}", e);
+                    error!("MTU: Invalid frame bits: {:?}", frame_bits.as_slice());
                     continue;
                 }
             }
