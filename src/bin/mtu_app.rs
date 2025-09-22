@@ -13,9 +13,7 @@ use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
 // Defmt timestamp provider using embassy-time
-defmt::timestamp!("{=u64:us}", {
-    embassy_time::Instant::now().as_micros()
-});
+defmt::timestamp!("{=u64:us}", { embassy_time::Instant::now().as_micros() });
 
 // Import our CLI modules
 use nrf52840_dk_template::cli::{CliError, CommandHandler, Terminal};

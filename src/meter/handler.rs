@@ -182,16 +182,28 @@ impl<'d> MeterHandler<'d> {
         // Build frames for each character in the response message
         for (char_index, ch) in config.response_message.chars().enumerate() {
             let char_frame = self.build_uart_frame(ch as u8, &config.meter_type);
-            defmt::info!("Meter: Building frame for char #{}: '{}' (ASCII {}) -> {} bits: [{}]", 
-                        char_index + 1, ch, ch as u8, char_frame.len(),
-                        char_frame.iter().map(|&b| if b == 1 { '1' } else { '0' }).collect::<heapless::String<32>>().as_str());
+            defmt::info!(
+                "Meter: Building frame for char #{}: '{}' (ASCII {}) -> {} bits: [{}]",
+                char_index + 1,
+                ch,
+                ch as u8,
+                char_frame.len(),
+                char_frame
+                    .iter()
+                    .map(|&b| if b == 1 { '1' } else { '0' })
+                    .collect::<heapless::String<32>>()
+                    .as_str()
+            );
             for &bit in &char_frame {
                 let _ = frame_buffer.push(bit);
             }
         }
 
-        defmt::info!("Meter: Complete frame buffer: {} total bits for {} characters", 
-                    frame_buffer.len(), config.response_message.len());
+        defmt::info!(
+            "Meter: Complete frame buffer: {} total bits for {} characters",
+            frame_buffer.len(),
+            config.response_message.len()
+        );
         frame_buffer
     }
 }

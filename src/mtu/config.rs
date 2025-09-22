@@ -58,7 +58,7 @@ impl Default for MtuConfig {
             bit_timeout_ms: 2000,
             runtime: Duration::from_secs(30),
             framing: UartFraming::SevenE1, // Sensus Standard default
-            baud_rate: 1200, // Default to 1200 baud
+            baud_rate: 1200,               // Default to 1200 baud
         }
     }
 }

@@ -8,62 +8,70 @@ use embassy_nrf::{
     gpio::{Input, Level, Output, OutputDrive, Pull},
     uarte::{self, Uarte},
 };
-use embassy_time::{Duration, Timer};
+use embassy_sync::channel::Channel;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_time::{Duration, Timer, Instant};
 use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
 // Defmt timestamp provider using embassy-time
-defmt::timestamp!("{=u64:us}", {
-    embassy_time::Instant::now().as_micros()
-});
+defmt::timestamp!("{=u64:us}", { embassy_time::Instant::now().as_micros() });
 
 // Import our CLI modules
 use nrf52840_dk_template::cli::Terminal;
-use nrf52840_dk_template::meter::{MeterCommandParser, MeterHandler, MeterConfig};
+use nrf52840_dk_template::meter::{MeterCommandParser, MeterConfig, MeterHandler};
 
 bind_interrupts!(struct Irqs {
     UARTE1 => embassy_nrf::uarte::InterruptHandler<embassy_nrf::peripherals::UARTE1>;
 });
+
+// Communication structure between fast clock response and LED/logging tasks
+#[derive(Clone, Copy)]
+struct ClockEvent {
+    pulse_count: u32,
+    bit_index: usize,
+    bit_value: u8,
+    transmitting: bool,
+    timestamp: Instant,
+    time_delta_micros: u64,
+}
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
 }
 
+// Fast clock response task - only handles critical timing and data pin
 #[embassy_executor::task]
-async fn clock_detection_task(
+async fn fast_clock_response_task(
     mut clock_pin: Input<'static>,
-    mut clock_led: Output<'static>,
     mut data_pin: Output<'static>,
-    mut activity_led: Output<'static>,
     meter_handler: &'static MeterHandler<'static>,
+    event_sender: embassy_sync::channel::Sender<'static, ThreadModeRawMutex, ClockEvent, 32>,
 ) -> ! {
-    info!("Synchronous meter clock detection task started");
+    info!("Fast clock response task started");
 
     let mut pulse_count = 0u32;
-    let mut last_pulse_time = embassy_time::Instant::now();
     let wake_up_threshold = 10; // Pulses to consider start of transmission
-    let pulse_timeout = embassy_time::Duration::from_millis(200); 
-    
-    let mut response_bits: heapless::Vec<u8, 2048> = heapless::Vec::new();
+    let pulse_timeout = Duration::from_millis(2000); // Support MTU rates as low as 1 bps
+    let mut last_pulse_time = Instant::now();
+    let mut last_log_time = Instant::now();
+
+    // Pre-build response frame buffer to avoid async delays during transmission
+    let mut response_bits = meter_handler.build_response_frames().await;
     let mut bit_index = 0;
     let mut transmitting = false;
 
     loop {
-        // Wait for rising edge of clock (sample on rising edge)
+        // Wait for rising edge of clock - this is the critical timing
         clock_pin.wait_for_rising_edge().await;
+        let now = Instant::now();
+        let time_delta = now.duration_since(last_log_time);
+        last_log_time = now;
 
-        let now = embassy_time::Instant::now();
-
-        // Flash LED4 briefly for each clock edge
-        clock_led.set_low(); // LED on
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(5)).await;
-        clock_led.set_high(); // LED off
-
-        // Check if this pulse is part of a continuous sequence
+        // Check timeout immediately
         let time_since_last = now.duration_since(last_pulse_time);
         if time_since_last > pulse_timeout && transmitting {
-            info!("Meter: @ {:?}: Transmission ended - pulse gap was {:?}", now, time_since_last);
             transmitting = false;
             bit_index = 0;
             pulse_count = 0;
@@ -72,20 +80,16 @@ async fn clock_detection_task(
         pulse_count += 1;
         last_pulse_time = now;
 
-        info!("Meter: @ {:?}: Clock pulse #{} (transmitting: {})", now, pulse_count, transmitting);
-
         // Check if we should start transmitting (after wake-up sequence)
         if !transmitting && pulse_count >= wake_up_threshold {
-            // Build response frame buffer based on current config
-            response_bits = meter_handler.build_response_frames().await;
+            if response_bits.is_empty() {
+                response_bits = meter_handler.build_response_frames().await;
+            }
             transmitting = true;
             bit_index = 0;
-            // Don't reset pulse_count - keep counting continuously for timing correlation
-            activity_led.set_low(); // Start transmission indicator
-            info!("Meter: @ {:?}: Starting transmission - {} bits to send", now, response_bits.len());
-            
-            // Pre-set the data pin for the first bit (start bit)
-            if response_bits.len() > 0 {
+
+            // Pre-set the data pin for the first bit (start bit) immediately
+            if !response_bits.is_empty() {
                 let bit = response_bits[0];
                 if bit == 1 {
                     data_pin.set_high();
@@ -93,41 +97,120 @@ async fn clock_detection_task(
                     data_pin.set_low();
                 }
                 bit_index = 1; // We've already set bit 0
-                
-                info!("Meter: @ {:?}: Clock #{} -> TX bit #{} (value: {}) [char #1, bit #1 in char]", 
-                      now, 0, 1, bit);
+
+                // Send event for logging
+                let event = ClockEvent {
+                    pulse_count,
+                    bit_index: 1,
+                    bit_value: bit,
+                    transmitting: true,
+                    timestamp: now,
+                    time_delta_micros: time_delta.as_micros(),
+                };
+                let _ = event_sender.try_send(event);
             }
+
+            // Return early to avoid double-logging on the start transmission pulse
+            continue;
         }
 
         // If transmitting, send the next bit on each clock pulse
         if transmitting && bit_index < response_bits.len() {
             let bit = response_bits[bit_index];
+
+            // Set data pin immediately - this is the critical operation
             if bit == 1 {
                 data_pin.set_high();
             } else {
                 data_pin.set_low();
             }
+
             bit_index += 1;
-            
-            // Calculate which character and bit position we're sending
-            let char_index = (bit_index - 1) / 10; // 10 bits per character for 7E1
-            let bit_in_char = (bit_index - 1) % 10 + 1;
-            
-            info!("Meter: @ {:?}: Clock #{} -> TX bit #{} (value: {}) [char #{}, bit #{} in char]", 
-                  now, pulse_count, bit_index, bit, char_index + 1, bit_in_char);
+
+            // Send event for logging
+            let event = ClockEvent {
+                pulse_count,
+                bit_index,
+                bit_value: bit,
+                transmitting: true,
+                timestamp: now,
+                time_delta_micros: time_delta.as_micros(),
+            };
+            let _ = event_sender.try_send(event);
 
             // If we've sent all bits, stop transmitting and reset for next cycle
             if bit_index >= response_bits.len() {
                 transmitting = false;
                 bit_index = 0;
                 pulse_count = 0; // Reset pulse count to require new wake-up sequence
-                activity_led.set_high(); // End transmission indicator
                 data_pin.set_high(); // Return to idle state
-                info!("Meter: @ {:?}: Transmission complete - returned to idle state, reset pulse count", now);
             }
+        } else if !transmitting {
+            // Send event for idle pulses
+            let event = ClockEvent {
+                pulse_count,
+                bit_index: 0,
+                bit_value: 0,
+                transmitting: false,
+                timestamp: now,
+                time_delta_micros: time_delta.as_micros(),
+            };
+            let _ = event_sender.try_send(event);
         }
     }
 }
+
+// LED and logging task - handles non-critical operations
+#[embassy_executor::task]
+async fn led_logging_task(
+    mut clock_led: Output<'static>,
+    mut activity_led: Output<'static>,
+    event_receiver: embassy_sync::channel::Receiver<'static, ThreadModeRawMutex, ClockEvent, 32>,
+) -> ! {
+    info!("LED and logging task started");
+
+    loop {
+        // Wait for events from the fast clock response task
+        let event = event_receiver.receive().await;
+
+        let time_delta_micros = event.time_delta_micros;
+
+        // Flash LED4 briefly for each clock edge
+        clock_led.set_low(); // LED on
+        Timer::after(Duration::from_millis(5)).await;
+        clock_led.set_high(); // LED off
+
+        if event.transmitting {
+            // Set activity LED on during transmission
+            activity_led.set_low();
+
+            // Calculate which character and bit position we're sending
+            let char_index = (event.bit_index - 1) / 10; // 10 bits per character for 7E1
+            let bit_in_char = (event.bit_index - 1) % 10 + 1;
+
+            info!(
+                "METER: CLK #{} TICK {} - TX bit #{} value {} [char #{}, bit #{}]",
+                event.pulse_count,
+                time_delta_micros,
+                event.bit_index,
+                event.bit_value,
+                char_index + 1,
+                bit_in_char
+            );
+        } else {
+            // Set activity LED off when not transmitting
+            activity_led.set_high();
+
+            info!(
+                "METER: CLK #{} TICK {} - pulse detected (transmitting: {})",
+                event.pulse_count,
+                time_delta_micros,
+                event.transmitting
+            );
+        }
+    }
+}
+
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -249,18 +332,33 @@ async fn main(spawner: Spawner) {
     );
 
     // Make meter handler static for the background task
-    let static_meter_handler = unsafe { 
-        core::mem::transmute::<&mut MeterHandler<'_>, &'static MeterHandler<'static>>(&mut meter_handler)
+    let static_meter_handler = unsafe {
+        core::mem::transmute::<&mut MeterHandler<'_>, &'static MeterHandler<'static>>(
+            &mut meter_handler,
+        )
     };
 
-    // Spawn background task for clock signal detection
+    // Create channel for communication between tasks
+    static EVENT_CHANNEL: Channel<ThreadModeRawMutex, ClockEvent, 32> = Channel::new();
+    let event_sender = EVENT_CHANNEL.sender();
+    let event_receiver = EVENT_CHANNEL.receiver();
+
+    // Spawn fast clock response task (highest priority)
     spawner
-        .spawn(clock_detection_task(
+        .spawn(fast_clock_response_task(
             static_clock_pin,
-            static_led4,
             static_data_pin,
-            static_led3,
             static_meter_handler,
+            event_sender,
+        ))
+        .unwrap();
+
+    // Spawn LED and logging task (lower priority)
+    spawner
+        .spawn(led_logging_task(
+            static_led4,
+            static_led3,
+            event_receiver,
         ))
         .unwrap();
 
@@ -283,7 +381,7 @@ async fn main(spawner: Spawner) {
                     Ok(Some(command_line)) => {
                         // Parse and execute meter commands
                         let command = MeterCommandParser::parse_command(&command_line);
-                        
+
                         match meter_handler.execute_command(command).await {
                             Ok(response) => {
                                 // Only write response if it's not empty

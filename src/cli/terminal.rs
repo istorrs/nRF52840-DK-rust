@@ -284,7 +284,7 @@ impl<'d> Terminal<'d> {
         self.write_line("  mtu_stop    - Stop MTU operation")
             .await?;
         self.write_line("  mtu_status  - Show MTU status").await?;
-        self.write_line("  mtu_baud <rate> - Set MTU baud rate (300-115200, default 1200)")
+        self.write_line("  mtu_baud <rate> - Set MTU baud rate (1-115200, default 1200)")
             .await?;
         self.write_line("").await?;
         self.write_line("Use TAB to autocomplete commands").await?;

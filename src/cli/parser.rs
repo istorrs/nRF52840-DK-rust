@@ -109,11 +109,11 @@ impl CommandParser {
             "mtu_baud" => {
                 if let Some(baud_str) = parts.next() {
                     if let Ok(baud_rate) = baud_str.parse::<u32>() {
-                        if baud_rate >= 300 && baud_rate <= 115200 {
+                        if (1..=115200).contains(&baud_rate) {
                             CliCommand::MtuBaud(baud_rate)
                         } else {
                             let mut msg = String::new();
-                            let _ = msg.push_str("mtu_baud: rate must be 300-115200");
+                            let _ = msg.push_str("mtu_baud: rate must be 1-115200");
                             CliCommand::Unknown(msg)
                         }
                     } else {
