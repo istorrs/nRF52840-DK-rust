@@ -28,7 +28,9 @@ impl Default for MeterConfig {
     fn default() -> Self {
         let mut default_message = String::new();
         // Realistic water meter response message
-        let _ = default_message.push_str("V;RB00000200;IB61564400;A1000;Z3214;XT0746;MT0683;RR00000000;GX000000;GN000000\r");
+        let _ = default_message.push_str(
+            "V;RB00000200;IB61564400;A1000;Z3214;XT0746;MT0683;RR00000000;GX000000;GN000000\r",
+        );
 
         Self {
             meter_type: MeterType::Sensus,

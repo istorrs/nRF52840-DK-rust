@@ -326,10 +326,10 @@ impl<'d> CommandHandler<'d> {
                     } else if let (Some(clock_pin), Some(data_pin)) =
                         (self.mtu_clock_pin.as_mut(), self.mtu_data_pin.as_ref())
                     {
-                        // Start the actual MTU operation with LED debug indicators
+                        // Start the actual MTU operation with LED debug indicators and stats tracking
                         let duration = embassy_time::Duration::from_secs(duration_secs as u64);
                         if let Err(e) = mtu
-                            .run_mtu_operation(
+                            .run_mtu_operation_with_stats(
                                 duration,
                                 clock_pin,
                                 data_pin,
@@ -363,6 +363,10 @@ impl<'d> CommandHandler<'d> {
                 if let Some(ref mtu_mutex) = self.mtu {
                     let mtu = mtu_mutex.lock().await;
                     let baud_rate = mtu.get_baud_rate().await;
+                    let expected_message = mtu.get_expected_message().await;
+                    let (successful, corrupted) = mtu.get_stats().await;
+                    let total_reads = successful + corrupted;
+
                     let _ = response.push_str("MTU Status:\r\n");
                     let _ = response.push_str("  State: ");
                     let _ = response.push_str(if mtu.is_running() {
@@ -378,6 +382,28 @@ impl<'d> CommandHandler<'d> {
                     let _ = response.push_str(" bps\r\n");
                     let _ = response.push_str("  Pins: P0.02 (clock), P0.03 (data)\r\n");
 
+                    // Show expected message for testing
+                    let _ = response.push_str("  Expected Message: ");
+                    let _ = response.push_str(expected_message.as_str());
+                    let _ = response.push_str("\r\n");
+
+                    // Show running statistics
+                    let _ = response.push_str("  Statistics:\r\n");
+                    let _ = response.push_str("    Successful reads: ");
+                    let _ = write_num(&mut response, successful as u64);
+                    let _ = response.push_str("\r\n    Corrupted reads: ");
+                    let _ = write_num(&mut response, corrupted as u64);
+                    let _ = response.push_str("\r\n    Total reads: ");
+                    let _ = write_num(&mut response, total_reads as u64);
+                    if total_reads > 0 {
+                        let success_rate = (successful as f32 / total_reads as f32) * 100.0;
+                        let _ = response.push_str("\r\n    Success rate: ");
+                        let _ = write_num(&mut response, success_rate as u64);
+                        let _ = response.push('%');
+                    }
+                    let _ = response.push_str("\r\n");
+
+                    // Show last received message
                     if let Some(message) = mtu.get_last_message().await {
                         let _ = response.push_str("  Last Message: ");
                         let _ = response.push_str(message.as_str());
@@ -398,6 +424,77 @@ impl<'d> CommandHandler<'d> {
                     let _ = write!(baud_str, "{}", baud_rate);
                     let _ = response.push_str(baud_str.as_str());
                     let _ = response.push_str(" bps");
+                } else {
+                    let _ = response.push_str("MTU not configured");
+                }
+            }
+            CliCommand::MtuTest(iterations) => {
+                info!("CLI: MTU test requested for {} iterations", iterations);
+                if let Some(ref mtu_mutex) = self.mtu {
+                    let _ = response.push_str("Starting MTU test with ");
+                    let _ = write_num(&mut response, iterations as u64);
+                    let _ = response.push_str(" iterations...\r\n");
+
+                    // Run the test
+                    let mtu = mtu_mutex.lock().await;
+                    if let (Some(clock_pin), Some(data_pin)) =
+                        (self.mtu_clock_pin.as_mut(), self.mtu_data_pin.as_ref())
+                    {
+                        match mtu
+                            .run_test(
+                                iterations,
+                                clock_pin,
+                                data_pin,
+                                self.mtu_clock_led.as_mut(),
+                                self.mtu_data_led.as_mut(),
+                            )
+                            .await
+                        {
+                            Ok((successful, corrupted)) => {
+                                let _ = response.push_str("MTU test completed:\r\n");
+                                let _ = response.push_str("  Successful: ");
+                                let _ = write_num(&mut response, successful as u64);
+                                let _ = response.push('/');
+                                let _ = write_num(&mut response, iterations as u64);
+                                let _ = response.push_str("\r\n  Corrupted: ");
+                                let _ = write_num(&mut response, corrupted as u64);
+                                let _ = response.push('/');
+                                let _ = write_num(&mut response, iterations as u64);
+                                let success_rate = (successful as f32 / iterations as f32) * 100.0;
+                                let _ = response.push_str("\r\n  Success rate: ");
+                                let _ = write_num(&mut response, success_rate as u64);
+                                let _ = response.push('%');
+                            }
+                            Err(e) => {
+                                let _ = response.push_str("MTU test failed: ");
+                                let _ = response.push_str("Error during test execution");
+                                info!("MTU test error: {:?}", e);
+                            }
+                        }
+                    } else {
+                        let _ = response.push_str("Error: MTU GPIO pins not configured");
+                    }
+                } else {
+                    let _ = response.push_str("MTU not configured");
+                }
+            }
+            CliCommand::MtuExpect(expected_message) => {
+                info!("CLI: MTU expected message set");
+                if let Some(ref mtu_mutex) = self.mtu {
+                    let mtu = mtu_mutex.lock().await;
+                    mtu.set_expected_message(expected_message.clone()).await;
+                    let _ = response.push_str("Expected message set to: ");
+                    let _ = response.push_str(expected_message.as_str());
+                } else {
+                    let _ = response.push_str("MTU not configured");
+                }
+            }
+            CliCommand::MtuReset => {
+                info!("CLI: MTU statistics reset requested");
+                if let Some(ref mtu_mutex) = self.mtu {
+                    let mtu = mtu_mutex.lock().await;
+                    mtu.reset_stats().await;
+                    let _ = response.push_str("MTU statistics reset");
                 } else {
                     let _ = response.push_str("MTU not configured");
                 }

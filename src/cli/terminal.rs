@@ -286,6 +286,12 @@ impl<'d> Terminal<'d> {
         self.write_line("  mtu_status  - Show MTU status").await?;
         self.write_line("  mtu_baud <rate> - Set MTU baud rate (1-115200, default 1200)")
             .await?;
+        self.write_line("  mtu_test <iterations> - Run MTU test (1-1000 iterations)")
+            .await?;
+        self.write_line("  mtu_expect <message> - Set expected message for testing")
+            .await?;
+        self.write_line("  mtu_reset - Reset MTU statistics")
+            .await?;
         self.write_line("").await?;
         self.write_line("Use TAB to autocomplete commands").await?;
         self.write_line("Use UP/DOWN arrows to navigate command history")

@@ -8,9 +8,9 @@ use embassy_nrf::{
     gpio::{Input, Level, Output, OutputDrive, Pull},
     uarte::{self, Uarte},
 };
-use embassy_sync::channel::Channel;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_time::{Duration, Timer, Instant};
+use embassy_sync::channel::Channel;
+use embassy_time::{Duration, Instant, Timer};
 use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
 
@@ -32,7 +32,6 @@ struct ClockEvent {
     bit_index: usize,
     bit_value: u8,
     transmitting: bool,
-    timestamp: Instant,
     time_delta_micros: u64,
 }
 
@@ -104,7 +103,6 @@ async fn fast_clock_response_task(
                     bit_index: 1,
                     bit_value: bit,
                     transmitting: true,
-                    timestamp: now,
                     time_delta_micros: time_delta.as_micros(),
                 };
                 let _ = event_sender.try_send(event);
@@ -133,7 +131,6 @@ async fn fast_clock_response_task(
                 bit_index,
                 bit_value: bit,
                 transmitting: true,
-                timestamp: now,
                 time_delta_micros: time_delta.as_micros(),
             };
             let _ = event_sender.try_send(event);
@@ -152,7 +149,6 @@ async fn fast_clock_response_task(
                 bit_index: 0,
                 bit_value: 0,
                 transmitting: false,
-                timestamp: now,
                 time_delta_micros: time_delta.as_micros(),
             };
             let _ = event_sender.try_send(event);
@@ -203,14 +199,11 @@ async fn led_logging_task(
 
             info!(
                 "METER: CLK #{} TICK {} - pulse detected (transmitting: {})",
-                event.pulse_count,
-                time_delta_micros,
-                event.transmitting
+                event.pulse_count, time_delta_micros, event.transmitting
             );
         }
     }
 }
-
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

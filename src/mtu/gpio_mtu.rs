@@ -71,6 +71,164 @@ impl GpioMtu {
         *msg = None;
     }
 
+    pub async fn set_expected_message(&self, expected: String<256>) {
+        let mut config = self.config.lock().await;
+        info!("MTU: Expected message set to: {}", expected.as_str());
+        config.expected_message = expected;
+    }
+
+    pub async fn get_expected_message(&self) -> String<256> {
+        let config = self.config.lock().await;
+        config.expected_message.clone()
+    }
+
+    pub async fn get_stats(&self) -> (u32, u32) {
+        let config = self.config.lock().await;
+        (config.successful_reads, config.corrupted_reads)
+    }
+
+    pub async fn reset_stats(&self) {
+        let mut config = self.config.lock().await;
+        config.successful_reads = 0;
+        config.corrupted_reads = 0;
+        info!("MTU: Statistics reset");
+    }
+
+    // Helper method to evaluate and record a message result
+    async fn record_message_result(&self, received_message: Option<String<256>>) -> bool {
+        let mut config = self.config.lock().await;
+        let expected = config.expected_message.clone();
+
+        if let Some(received) = received_message {
+            if received == expected {
+                config.successful_reads += 1;
+                info!(
+                    "MTU: Message SUCCESS - Stats: {}/{}",
+                    config.successful_reads,
+                    config.successful_reads + config.corrupted_reads
+                );
+                true
+            } else {
+                config.corrupted_reads += 1;
+                info!(
+                    "MTU: Message CORRUPTED - Expected: '{}', Received: '{}' - Stats: {}/{}",
+                    expected.as_str(),
+                    received.as_str(),
+                    config.successful_reads,
+                    config.successful_reads + config.corrupted_reads
+                );
+                false
+            }
+        } else {
+            config.corrupted_reads += 1;
+            info!(
+                "MTU: Message CORRUPTED - No message received - Stats: {}/{}",
+                config.successful_reads,
+                config.successful_reads + config.corrupted_reads
+            );
+            false
+        }
+    }
+
+    // Test function that runs MTU operations multiple times and compares results
+    pub async fn run_test(
+        &self,
+        iterations: u16,
+        clock_pin: &mut Output<'_>,
+        data_pin: &Input<'_>,
+        mut clock_led: Option<&mut Output<'_>>,
+        mut data_led: Option<&mut Output<'_>>,
+    ) -> MtuResult<(u16, u16)> {
+        // Returns (successful_messages, corrupted_messages)
+        info!("MTU: Starting test with {} iterations", iterations);
+
+        let mut successful_messages = 0u16;
+        let mut corrupted_messages = 0u16;
+        let expected_message = self.get_expected_message().await;
+
+        info!("MTU: Expected message: {}", expected_message.as_str());
+
+        for iteration in 1..=iterations {
+            info!("MTU: Test iteration {}/{}", iteration, iterations);
+
+            // Clear any previous message
+            self.clear_last_message().await;
+
+            // Run single MTU operation (shorter duration for testing)
+            let test_duration = Duration::from_secs(10); // 10 seconds per test
+
+            match self
+                .run_mtu_operation(
+                    test_duration,
+                    clock_pin,
+                    data_pin,
+                    clock_led.as_deref_mut(),
+                    data_led.as_deref_mut(),
+                )
+                .await
+            {
+                Ok(_) => {
+                    // Check if we received a message and record the result
+                    let received_message = self.get_last_message().await;
+                    if self.record_message_result(received_message.clone()).await {
+                        successful_messages += 1;
+                        info!(
+                            "MTU: Test {}: SUCCESS - Message matches expected",
+                            iteration
+                        );
+                    } else {
+                        corrupted_messages += 1;
+                        if let Some(received) = received_message {
+                            info!(
+                                "MTU: Test {}: CORRUPTED - Received: '{}', Expected: '{}'",
+                                iteration,
+                                received.as_str(),
+                                expected_message.as_str()
+                            );
+                        } else {
+                            info!("MTU: Test {}: CORRUPTED - No message received", iteration);
+                        }
+                    }
+                }
+                Err(e) => {
+                    corrupted_messages += 1;
+                    info!("MTU: Test {}: ERROR - Operation failed: {:?}", iteration, e);
+                }
+            }
+
+            // Small delay between tests
+            Timer::after(Duration::from_millis(500)).await;
+        }
+
+        info!(
+            "MTU: Test completed - {}/{} successful, {}/{} corrupted",
+            successful_messages, iterations, corrupted_messages, iterations
+        );
+
+        Ok((successful_messages, corrupted_messages))
+    }
+
+    // MTU operation with statistics tracking (wrapper for manual operations)
+    pub async fn run_mtu_operation_with_stats(
+        &self,
+        duration: Duration,
+        clock_pin: &mut Output<'_>,
+        data_pin: &Input<'_>,
+        clock_led: Option<&mut Output<'_>>,
+        data_led: Option<&mut Output<'_>>,
+    ) -> MtuResult<()> {
+        // Run the actual MTU operation
+        let result = self
+            .run_mtu_operation(duration, clock_pin, data_pin, clock_led, data_led)
+            .await;
+
+        // Record statistics for this operation
+        let received_message = self.get_last_message().await;
+        self.record_message_result(received_message).await;
+
+        result
+    }
+
     // MTU operation implementing RPI architecture with separated clock and data tasks
     pub async fn run_mtu_operation(
         &self,
@@ -87,6 +245,9 @@ impl GpioMtu {
         drop(config);
 
         info!("MTU: Starting RPI-style meter reading for {:?}", duration);
+
+        // Set running flag for the duration of this operation
+        self.running.store(true, Ordering::Relaxed);
 
         let start_time = Instant::now();
 
@@ -135,6 +296,9 @@ impl GpioMtu {
         if let Some(led) = data_led.as_mut() {
             led.set_high(); // LED off
         }
+
+        // Clear running flag
+        self.running.store(false, Ordering::Relaxed);
 
         info!("MTU: Operation completed after {:?}", start_time.elapsed());
         Ok(())

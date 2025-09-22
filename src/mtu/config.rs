@@ -1,4 +1,5 @@
 use embassy_time::Duration;
+use heapless::String;
 
 #[derive(Debug, Clone)]
 pub struct MtuConfig {
@@ -19,6 +20,15 @@ pub struct MtuConfig {
 
     /// Baud rate for communication
     pub baud_rate: u32,
+
+    /// Expected message for testing (default is meter's default response)
+    pub expected_message: String<256>,
+
+    /// Running count of successful message reads
+    pub successful_reads: u32,
+
+    /// Running count of corrupted/failed message reads
+    pub corrupted_reads: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,6 +62,12 @@ impl MtuConfig {
 
 impl Default for MtuConfig {
     fn default() -> Self {
+        let mut expected_message = String::new();
+        // Default expected message matches meter's default response
+        let _ = expected_message.push_str(
+            "V;RB00000200;IB61564400;A1000;Z3214;XT0746;MT0683;RR00000000;GX000000;GN000000\r",
+        );
+
         Self {
             cycle_duration: Duration::from_micros(1000), // 1ms period = 500Hz
             power_up_delay_ms: 10, // Very short delay to be ready before meter starts
@@ -59,6 +75,9 @@ impl Default for MtuConfig {
             runtime: Duration::from_secs(30),
             framing: UartFraming::SevenE1, // Sensus Standard default
             baud_rate: 1200,               // Default to 1200 baud
+            expected_message,
+            successful_reads: 0,
+            corrupted_reads: 0,
         }
     }
 }

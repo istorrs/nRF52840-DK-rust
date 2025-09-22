@@ -32,6 +32,9 @@ impl CommandParser {
             "mtu_stop",
             "mtu_status",
             "mtu_baud",
+            "mtu_test",
+            "mtu_expect",
+            "mtu_reset",
         ]
     }
 
@@ -180,6 +183,49 @@ impl CommandParser {
                     CliCommand::Unknown(msg)
                 }
             }
+            "mtu_test" => {
+                if let Some(arg) = parts.next() {
+                    if let Ok(iterations) = arg.parse::<u16>() {
+                        if iterations > 0 && iterations <= 1000 {
+                            CliCommand::MtuTest(iterations)
+                        } else {
+                            let mut msg = String::new();
+                            let _ = msg.push_str("mtu_test: iterations must be 1-1000");
+                            CliCommand::Unknown(msg)
+                        }
+                    } else {
+                        let mut msg = String::new();
+                        let _ = msg.push_str("mtu_test: invalid iteration count");
+                        CliCommand::Unknown(msg)
+                    }
+                } else {
+                    let mut msg = String::new();
+                    let _ = msg.push_str("mtu_test: iteration count required");
+                    CliCommand::Unknown(msg)
+                }
+            }
+            "mtu_expect" => {
+                let remaining_parts: heapless::Vec<&str, 16> = parts.collect();
+                if !remaining_parts.is_empty() {
+                    let mut expected_message = heapless::String::new();
+                    for (i, part) in remaining_parts.iter().enumerate() {
+                        if i > 0 {
+                            let _ = expected_message.push(' ');
+                        }
+                        let _ = expected_message.push_str(part);
+                    }
+                    // Ensure the message ends with carriage return
+                    if !expected_message.ends_with('\r') {
+                        let _ = expected_message.push('\r');
+                    }
+                    CliCommand::MtuExpect(expected_message)
+                } else {
+                    let mut msg = String::new();
+                    let _ = msg.push_str("mtu_expect: expected message required");
+                    CliCommand::Unknown(msg)
+                }
+            }
+            "mtu_reset" => CliCommand::MtuReset,
             _ => {
                 let mut unknown_cmd = String::new();
                 let _ = unknown_cmd.push_str(cmd);
