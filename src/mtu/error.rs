@@ -5,6 +5,10 @@ pub enum MtuError {
     GpioError,
     TimeoutError,
     FramingError,
+    FramingErrorInvalidBitCount,
+    FramingErrorInvalidStartBit,
+    FramingErrorInvalidStopBit,
+    FramingErrorParityMismatch,
     ConfigError,
     ChannelError,
 }

@@ -19,24 +19,24 @@ impl UartFrame {
     pub fn validate(&self) -> MtuResult<()> {
         let expected_bits = self.framing.bits_per_frame();
         if self.bits.len() != expected_bits {
-            return Err(MtuError::FramingError);
+            return Err(MtuError::FramingErrorInvalidBitCount);
         }
 
         // Check start bit (must be 0)
         if self.bits[0] != 0 {
-            return Err(MtuError::FramingError);
+            return Err(MtuError::FramingErrorInvalidStartBit);
         }
 
         // Check stop bits (must be 1)
         match self.framing {
             UartFraming::SevenE1 => {
                 if self.bits[9] != 1 {
-                    return Err(MtuError::FramingError);
+                    return Err(MtuError::FramingErrorInvalidStopBit);
                 }
             }
             UartFraming::SevenE2 => {
                 if self.bits[9] != 1 || self.bits[10] != 1 {
-                    return Err(MtuError::FramingError);
+                    return Err(MtuError::FramingErrorInvalidStopBit);
                 }
             }
         }
@@ -48,7 +48,7 @@ impl UartFrame {
         let expected_parity = if data_ones % 2 == 0 { 0 } else { 1 }; // Even parity
 
         if parity_bit != expected_parity {
-            return Err(MtuError::FramingError);
+            return Err(MtuError::FramingErrorParityMismatch);
         }
 
         Ok(())

@@ -23,8 +23,6 @@ pub struct CommandHandler<'d> {
     mtu: Option<Mutex<ThreadModeRawMutex, crate::mtu::GpioMtu>>,
     mtu_clock_pin: Option<Output<'d>>,
     mtu_data_pin: Option<Input<'d>>,
-    mtu_clock_led: Option<Output<'d>>,
-    mtu_data_led: Option<Output<'d>>,
 }
 
 impl<'d> Default for CommandHandler<'d> {
@@ -48,8 +46,6 @@ impl<'d> CommandHandler<'d> {
             mtu: None,
             mtu_clock_pin: None,
             mtu_data_pin: None,
-            mtu_clock_led: None,
-            mtu_data_led: None,
         }
     }
 
@@ -86,10 +82,9 @@ impl<'d> CommandHandler<'d> {
         self
     }
 
-    pub fn with_mtu_debug_leds(mut self, clock_led: Output<'d>, data_led: Output<'d>) -> Self {
-        self.mtu_clock_led = Some(clock_led);
-        self.mtu_data_led = Some(data_led);
-        self
+    // Get a reference to the MTU instance for external use (e.g., spawning LED task)
+    pub fn get_mtu(&self) -> Option<&Mutex<ThreadModeRawMutex, crate::mtu::GpioMtu>> {
+        self.mtu.as_ref()
     }
 
     pub async fn execute_command(
@@ -329,13 +324,7 @@ impl<'d> CommandHandler<'d> {
                         // Start the actual MTU operation with LED debug indicators and stats tracking
                         let duration = embassy_time::Duration::from_secs(duration_secs as u64);
                         if let Err(e) = mtu
-                            .run_mtu_operation_with_stats(
-                                duration,
-                                clock_pin,
-                                data_pin,
-                                self.mtu_clock_led.as_mut(),
-                                self.mtu_data_led.as_mut(),
-                            )
+                            .run_mtu_operation_with_stats(duration, clock_pin, data_pin)
                             .await
                         {
                             let _ = response.push_str("\r\nError: MTU operation failed");
@@ -441,16 +430,7 @@ impl<'d> CommandHandler<'d> {
                     if let (Some(clock_pin), Some(data_pin)) =
                         (self.mtu_clock_pin.as_mut(), self.mtu_data_pin.as_ref())
                     {
-                        match mtu
-                            .run_test(
-                                iterations,
-                                clock_pin,
-                                data_pin,
-                                self.mtu_clock_led.as_mut(),
-                                self.mtu_data_led.as_mut(),
-                            )
-                            .await
-                        {
+                        match mtu.run_test(iterations, clock_pin, data_pin).await {
                             Ok((successful, corrupted)) => {
                                 let _ = response.push_str("MTU test completed:\r\n");
                                 let _ = response.push_str("  Successful: ");

@@ -8,6 +8,8 @@ use embassy_nrf::{
     gpio::{Input, Level, Output, OutputDrive, Pull},
     uarte::{self, Uarte},
 };
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use nrf_softdevice::{raw, Softdevice};
 use {defmt_rtt as _, panic_halt as _};
@@ -25,6 +27,21 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
+}
+
+// MTU LED task - handles LED control for MTU operations
+#[embassy_executor::task]
+async fn mtu_led_task(
+    event_receiver: embassy_sync::channel::Receiver<
+        'static,
+        ThreadModeRawMutex,
+        nrf52840_dk_template::mtu::gpio_mtu::MtuEvent,
+        32,
+    >,
+    clock_led: Output<'static>,
+    data_led: Output<'static>,
+) -> ! {
+    nrf52840_dk_template::mtu::gpio_mtu::run_mtu_led_task(event_receiver, clock_led, data_led).await
 }
 
 #[embassy_executor::main]
@@ -115,13 +132,39 @@ async fn main(spawner: Spawner) {
     let led_clock = led3; // LED3 for clock activity
     let led_data = led4; // LED4 for data activity
 
-    // Initialize CLI components with LEDs, buttons, MTU, and SoftDevice
+    // Initialize CLI components with buttons, MTU, and SoftDevice (no LED parameters)
     let mut terminal = Terminal::new(uarte).with_tx_led(led2);
     let mut command_handler = CommandHandler::new()
         .with_buttons(button1, button2, button3, button4)
         .with_mtu(mtu_clock_pin, mtu_data_pin)
-        .with_mtu_debug_leds(led_clock, led_data)
         .with_softdevice(sd);
+
+    // Create channel for MTU LED events (following meter pattern)
+    static MTU_LED_EVENT_CHANNEL: Channel<
+        ThreadModeRawMutex,
+        nrf52840_dk_template::mtu::gpio_mtu::MtuEvent,
+        32,
+    > = Channel::new();
+    let mtu_event_sender = MTU_LED_EVENT_CHANNEL.sender();
+    let mtu_event_receiver = MTU_LED_EVENT_CHANNEL.receiver();
+
+    // Set the LED event sender in the MTU instance
+    if let Some(mtu_ref) = command_handler.get_mtu() {
+        let mut mtu_instance = mtu_ref.lock().await;
+        mtu_instance.set_led_event_sender(mtu_event_sender);
+    }
+
+    // Make static references for the MTU LED task (following meter app pattern)
+    let static_led_clock =
+        unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(led_clock) };
+    let static_led_data = unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(led_data) };
+
+    // Spawn the MTU LED task
+    let _ = spawner.spawn(mtu_led_task(
+        mtu_event_receiver,
+        static_led_clock,
+        static_led_data,
+    ));
 
     // Send welcome message
     let _ = terminal.write_line("").await;
