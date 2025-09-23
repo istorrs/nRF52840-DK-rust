@@ -1,6 +1,6 @@
 use defmt::Format;
 
-#[derive(Debug, Format)]
+#[derive(Debug, Format, Clone, Copy)]
 pub enum MtuError {
     GpioError,
     TimeoutError,

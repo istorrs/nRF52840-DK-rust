@@ -10,7 +10,9 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 
-// Communication structure between clock/data tasks and LED task
+use super::error::MtuError;
+
+// Communication structure between critical timing tasks and LED/logging task
 #[derive(Clone, Copy)]
 pub struct MtuEvent {
     pub clock_cycle: u64,
@@ -20,11 +22,33 @@ pub struct MtuEvent {
 
 #[derive(Clone, Copy)]
 pub enum MtuEventType {
+    // Operation lifecycle events
+    OperationStart,
+    OperationEnd,
+
+    // Critical timing events (minimal data for speed)
+    ClockCycle { bit_value: u8 },
+
+    // Data processing events with logging details
+    CharacterReceived { ch: char, ascii: u8, message_len: usize },
+    MessageComplete { length: usize },
+    PartialMessage { length: usize },
+
+    // Error events with diagnostic data
+    FramingError {
+        error_type: MtuError,
+        frame_bits_len: usize,
+        start_bit: u8,
+        parity_bit: u8,
+        stop_bit: u8,
+        data_ones_count: usize,
+        expected_parity: u8,
+    },
+
+    // LED control events (minimal)
     ClockHigh,
     ClockLow,
     DataBit(u8),
-    OperationStart,
-    OperationEnd,
 }
 
 pub struct GpioMtu {
@@ -382,7 +406,6 @@ impl GpioMtu {
         data_pin: &Input<'_>,
         bit_sender: Sender<'_, ThreadModeRawMutex, u8, 64>,
     ) -> MtuResult<()> {
-        info!("MTU: Clock task started (equivalent to RPI clock thread)");
 
         let mut clock_cycle_count = 0u64;
         let mut last_clock_time = Instant::now();
@@ -401,51 +424,52 @@ impl GpioMtu {
 
             // Clock LOW phase
             clock_pin.set_low();
-            // Send clock low event
-            if let Some(ref led_sender) = self.led_event_sender {
-                let clock_low_event = MtuEvent {
-                    clock_cycle: clock_cycle_count,
-                    event_type: MtuEventType::ClockLow,
-                    time_delta_micros: time_delta.as_micros(),
-                };
-                let _ = led_sender.try_send(clock_low_event);
-            }
 
             Timer::after(half_cycle).await;
 
             let data_val = data_pin.is_high();
             let data_bit = if data_val { 1 } else { 0 };
 
-            info!(
-                "MTU: CLK #{} TICK {} - RX bit {}",
-                clock_cycle_count,
-                time_delta.as_micros(),
-                data_bit
-            );
-
             // Send sampled bit to data processing task (like RPI line 293-295)
             if bit_sender.try_send(data_bit).is_err() {
-                warn!("MTU: Bit queue full, dropping bit");
+                // Critical: don't log here, send error event instead
+                if let Some(ref led_sender) = self.led_event_sender {
+                    let error_event = MtuEvent {
+                        clock_cycle: clock_cycle_count,
+                        event_type: MtuEventType::FramingError {
+                            error_type: MtuError::ChannelError,
+                            frame_bits_len: 0,
+                            start_bit: 0,
+                            parity_bit: 0,
+                            stop_bit: 0,
+                            data_ones_count: 0,
+                            expected_parity: 0,
+                        },
+                        time_delta_micros: time_delta.as_micros(),
+                    };
+                    let _ = led_sender.try_send(error_event);
+                }
             }
 
-            // Send data bit event
+            // Send clock cycle event (combines timing info and bit data)
             if let Some(ref led_sender) = self.led_event_sender {
-                let data_event = MtuEvent {
+                let cycle_event = MtuEvent {
                     clock_cycle: clock_cycle_count,
-                    event_type: MtuEventType::DataBit(data_bit),
+                    event_type: MtuEventType::ClockCycle { bit_value: data_bit },
                     time_delta_micros: time_delta.as_micros(),
                 };
-                let _ = led_sender.try_send(data_event);
+                let _ = led_sender.try_send(cycle_event);
             }
 
             // Clock HIGH phase
             clock_pin.set_high();
-            // Send clock high event
+
+            // Send clock high event for LED
             if let Some(ref led_sender) = self.led_event_sender {
                 let clock_high_event = MtuEvent {
                     clock_cycle: clock_cycle_count,
                     event_type: MtuEventType::ClockHigh,
-                    time_delta_micros: time_delta.as_micros(),
+                    time_delta_micros: 0,
                 };
                 let _ = led_sender.try_send(clock_high_event);
             }
@@ -459,7 +483,6 @@ impl GpioMtu {
             Timer::after(half_cycle).await;
         }
 
-        info!("MTU: Clock task stopped");
         Ok(())
     }
 
@@ -469,7 +492,6 @@ impl GpioMtu {
         bit_receiver: Receiver<'_, ThreadModeRawMutex, u8, 64>,
         _start_time: Instant,
     ) -> MtuResult<()> {
-        info!("MTU: Data task started (equivalent to RPI data thread)");
 
         let mut received_chars = heapless::Vec::<char, 256>::new();
 
@@ -497,11 +519,10 @@ impl GpioMtu {
                 break;
             }
 
-            let cycle_count = {
+            let _cycle_count = {
                 let counter = self.clock_cycle_counter.lock().await;
                 *counter
             };
-            info!("MTU: UART start bit detected (cycle={})", cycle_count);
 
             // Collect complete frame - like RPI lines 375-402
             let config = self.config.lock().await;
@@ -528,17 +549,12 @@ impl GpioMtu {
                         //info!("MTU: UART bit {}: {}", bits_received - 1, bit_val);
                     }
                     Either::Second(_) => {
-                        warn!("MTU: Timeout waiting for UART bit {}", bits_received);
                         break;
                     }
                 }
             }
 
             if bits_received != frame_size {
-                warn!(
-                    "MTU: Incomplete frame received ({}/{} bits)",
-                    bits_received, frame_size
-                );
                 continue;
             }
 
@@ -552,21 +568,36 @@ impl GpioMtu {
                     match extract_char_from_frame(&frame) {
                         Ok(ch) => {
                             let _ = received_chars.push(ch);
-                            info!(
-                                "MTU: UART frame -> char: {:?} (ASCII {}) - Message length: {}",
-                                ch as char,
-                                ch as u8,
-                                received_chars.len()
-                            );
+
+                            // Send character received event
+                            if let Some(ref led_sender) = self.led_event_sender {
+                                let char_event = MtuEvent {
+                                    clock_cycle: 0, // Data task doesn't track cycles
+                                    event_type: MtuEventType::CharacterReceived {
+                                        ch,
+                                        ascii: ch as u8,
+                                        message_len: received_chars.len(),
+                                    },
+                                    time_delta_micros: 0,
+                                };
+                                let _ = led_sender.try_send(char_event);
+                            }
 
                             // Check for end of message (carriage return)
                             if ch == '\r' {
                                 let message: String<256> = received_chars.iter().collect();
-                                info!(
-                                    "MTU: Received complete message: {:?} (length: {})",
-                                    message.as_str(),
-                                    message.len()
-                                );
+
+                                // Send message complete event
+                                if let Some(ref led_sender) = self.led_event_sender {
+                                    let complete_event = MtuEvent {
+                                        clock_cycle: 0,
+                                        event_type: MtuEventType::MessageComplete {
+                                            length: message.len(),
+                                        },
+                                        time_delta_micros: 0,
+                                    };
+                                    let _ = led_sender.try_send(complete_event);
+                                }
 
                                 // Store the received message
                                 {
@@ -579,33 +610,58 @@ impl GpioMtu {
                             }
                         }
                         Err(e) => {
-                            // Show detailed frame analysis for debugging
-                            let frame_str: heapless::String<64> = frame_bits
-                                .iter()
-                                .map(|&b| if b == 1 { '1' } else { '0' })
-                                .collect();
-                            error!("MTU: UART framing error: {:?}", e);
-                            error!("MTU: Frame bits [S|D7..D1|P|T]: {}", frame_str.as_str());
+                            // Send detailed frame error event for background logging
+                            if let Some(ref led_sender) = self.led_event_sender {
+                                // Calculate frame analysis data
+                                let (start_bit, parity_bit, stop_bit, data_ones_count, expected_parity) = if frame_bits.len() >= 10 {
+                                    let start = frame_bits[0];
+                                    let data_bits = &frame_bits[1..8];
+                                    let parity = frame_bits[8];
+                                    let stop = frame_bits[9];
+                                    let ones = data_bits.iter().filter(|&&bit| bit == 1).count();
+                                    let exp_parity = if ones % 2 == 0 { 0 } else { 1 };
+                                    (start, parity, stop, ones, exp_parity)
+                                } else {
+                                    (0, 0, 0, 0, 0)
+                                };
 
-                            // Additional analysis for common errors
-                            if frame_bits.len() == 10 {
-                                let start_bit = frame_bits[0];
-                                let data_bits = &frame_bits[1..8];
-                                let parity_bit = frame_bits[8];
-                                let stop_bit = frame_bits[9];
-                                let data_ones = data_bits.iter().filter(|&&bit| bit == 1).count();
-                                let expected_parity = if data_ones % 2 == 0 { 0 } else { 1 };
-
-                                error!("MTU: Frame analysis - Start:{} Data:{} Parity:{} (exp:{}) Stop:{}",
-                                       start_bit, data_ones, parity_bit, expected_parity, stop_bit);
+                                let error_event = MtuEvent {
+                                    clock_cycle: 0,
+                                    event_type: MtuEventType::FramingError {
+                                        error_type: e,
+                                        frame_bits_len: frame_bits.len(),
+                                        start_bit,
+                                        parity_bit,
+                                        stop_bit,
+                                        data_ones_count,
+                                        expected_parity,
+                                    },
+                                    time_delta_micros: 0,
+                                };
+                                let _ = led_sender.try_send(error_event);
                             }
                             continue;
                         }
                     }
                 }
                 Err(e) => {
-                    error!("MTU: Invalid UART frame: {:?}", e);
-                    error!("MTU: Invalid frame bits: {:?}", frame_bits.as_slice());
+                    // Send frame creation error event
+                    if let Some(ref led_sender) = self.led_event_sender {
+                        let error_event = MtuEvent {
+                            clock_cycle: 0,
+                            event_type: MtuEventType::FramingError {
+                                error_type: e,
+                                frame_bits_len: frame_bits.len(),
+                                start_bit: 0,
+                                parity_bit: 0,
+                                stop_bit: 0,
+                                data_ones_count: 0,
+                                expected_parity: 0,
+                            },
+                            time_delta_micros: 0,
+                        };
+                        let _ = led_sender.try_send(error_event);
+                    }
                     continue;
                 }
             }
@@ -613,26 +669,29 @@ impl GpioMtu {
 
         // Report any partial message when stopping
         if !received_chars.is_empty() {
-            let partial_message: String<256> = received_chars.iter().collect();
-            error!(
-                "MTU: Data task stopped with {} partial characters: '{}'",
-                received_chars.len(),
-                partial_message.as_str()
-            );
-        } else {
-            info!("MTU: Data task stopped (no partial characters)");
+            if let Some(ref led_sender) = self.led_event_sender {
+                let partial_event = MtuEvent {
+                    clock_cycle: 0,
+                    event_type: MtuEventType::PartialMessage {
+                        length: received_chars.len(),
+                    },
+                    time_delta_micros: 0,
+                };
+                let _ = led_sender.try_send(partial_event);
+            }
         }
         Ok(())
     }
 }
 
-// Standalone LED task function that can be used without holding MTU mutex
-pub async fn run_mtu_led_task(
+// MTU LED and logging task - handles LED control and all logging for MTU operations
+// Follows meter pattern: critical timing tasks send events, background task handles logging
+pub async fn run_mtu_led_logging_task(
     event_receiver: Receiver<'_, ThreadModeRawMutex, MtuEvent, 32>,
     mut clock_led: Output<'_>,
     mut data_led: Output<'_>,
 ) -> ! {
-    info!("MTU: LED task started");
+    info!("MTU: LED and logging task started");
 
     loop {
         // Wait for events from MTU operations
@@ -651,25 +710,85 @@ pub async fn run_mtu_led_task(
                 clock_led.set_high();
                 data_led.set_high();
             }
+
+            // Critical timing events with logging
+            MtuEventType::ClockCycle { bit_value } => {
+                info!(
+                    "MTU: CLK #{} TICK {} - RX bit {}",
+                    event.clock_cycle,
+                    event.time_delta_micros,
+                    bit_value
+                );
+
+                // Clock LED follows clock state (no delays)
+                clock_led.set_low();  // Clock is low during this phase
+
+                // Data LED reflects the received bit value (no delays)
+                if bit_value == 1 {
+                    data_led.set_low();   // LED on for bit = 1
+                } else {
+                    data_led.set_high();  // LED off for bit = 0
+                }
+            }
+
+            // Data processing events with detailed logging
+            MtuEventType::CharacterReceived { ch, ascii, message_len } => {
+                info!(
+                    "MTU: UART frame -> char: {:?} (ASCII {}) - Message length: {}",
+                    ch, ascii, message_len
+                );
+            }
+
+            MtuEventType::MessageComplete { length } => {
+                info!("MTU: Received complete message (length: {})", length);
+            }
+
+            MtuEventType::PartialMessage { length } => {
+                error!("MTU: Data task stopped with {} partial characters", length);
+            }
+
+            // Detailed error logging with frame analysis
+            MtuEventType::FramingError {
+                error_type,
+                frame_bits_len,
+                start_bit,
+                parity_bit,
+                stop_bit,
+                data_ones_count,
+                expected_parity,
+            } => {
+                match error_type {
+                    MtuError::ChannelError => {
+                        warn!("MTU: Bit queue full, dropping bit");
+                    }
+                    _ => {
+                        error!("MTU: UART framing error: {:?}", error_type);
+
+                        if frame_bits_len >= 10 {
+                            error!(
+                                "MTU: Frame analysis - Start:{} Data:{} Parity:{} (exp:{}) Stop:{} [length:{}]",
+                                start_bit, data_ones_count, parity_bit, expected_parity, stop_bit, frame_bits_len
+                            );
+                        } else {
+                            error!("MTU: Invalid frame length: {} bits", frame_bits_len);
+                        }
+                    }
+                }
+            }
+
+            // Legacy LED events (for compatibility)
             MtuEventType::ClockHigh => {
-                // Clock LED on during clock high (brief flash)
-                clock_led.set_low();
-                // Use a very short flash at high speeds to be visible
-                embassy_time::Timer::after(embassy_time::Duration::from_millis(2)).await;
-                clock_led.set_high();
+                clock_led.set_high();  // Clock LED on when clock is high
             }
             MtuEventType::ClockLow => {
-                // Clock LED off during clock low (already off from previous cycle)
-                clock_led.set_high();
+                clock_led.set_low();   // Clock LED off when clock is low  
             }
             MtuEventType::DataBit(bit) => {
-                // Data LED indicates received data activity
                 if bit == 1 {
-                    data_led.set_low(); // LED on for data bit 1
-                    embassy_time::Timer::after(embassy_time::Duration::from_millis(5)).await;
-                    data_led.set_high(); // LED off
+                    data_led.set_low();   // Data LED on for bit = 1
+                } else {
+                    data_led.set_high();  // Data LED off for bit = 0
                 }
-                // No LED change for data bit 0 (idle state)
             }
         }
     }

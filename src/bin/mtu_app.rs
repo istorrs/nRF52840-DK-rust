@@ -29,9 +29,9 @@ async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
 }
 
-// MTU LED task - handles LED control for MTU operations
+// MTU LED and logging task - handles LED control and comprehensive logging for MTU operations
 #[embassy_executor::task]
-async fn mtu_led_task(
+async fn mtu_led_logging_task(
     event_receiver: embassy_sync::channel::Receiver<
         'static,
         ThreadModeRawMutex,
@@ -41,7 +41,7 @@ async fn mtu_led_task(
     clock_led: Output<'static>,
     data_led: Output<'static>,
 ) -> ! {
-    nrf52840_dk_template::mtu::gpio_mtu::run_mtu_led_task(event_receiver, clock_led, data_led).await
+    nrf52840_dk_template::mtu::gpio_mtu::run_mtu_led_logging_task(event_receiver, clock_led, data_led).await
 }
 
 #[embassy_executor::main]
@@ -159,8 +159,8 @@ async fn main(spawner: Spawner) {
         unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(led_clock) };
     let static_led_data = unsafe { core::mem::transmute::<Output<'_>, Output<'static>>(led_data) };
 
-    // Spawn the MTU LED task
-    let _ = spawner.spawn(mtu_led_task(
+    // Spawn the MTU LED and logging task
+    let _ = spawner.spawn(mtu_led_logging_task(
         mtu_event_receiver,
         static_led_clock,
         static_led_data,
