@@ -163,6 +163,18 @@ async fn fast_clock_response_task(
 }
 
 // LED and logging task - handles non-critical operations
+//
+// IMPORTANT TIMING NOTE: The 5ms Timer delay is critical for system stability.
+// Even though this seems "slow" for high-speed operation (115200 baud = 8.7μs per bit),
+// it works because:
+// 1. Transmissions are short bursts (~90 bits = 780μs at 115200 baud)
+// 2. The 32-event channel buffer holds entire transmission without overflow
+// 3. LED task processes buffered events during long idle periods between transmissions
+// 4. The interrupt-driven fast_clock_response_task is sensitive to LED task frequency
+// 5. Reducing delay to 1ms causes severe timing issues and framing errors in MTU
+//
+// This demonstrates that Embassy's task scheduler and interrupt handling can be
+// affected by seemingly unrelated task activity, even when using try_send().
 #[embassy_executor::task]
 async fn led_logging_task(
     mut clock_led: Output<'static>,
