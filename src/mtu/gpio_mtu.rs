@@ -425,6 +425,16 @@ impl GpioMtu {
             // Clock LOW phase
             clock_pin.set_low();
 
+            // Send clock low event for LED
+            if let Some(ref led_sender) = self.led_event_sender {
+                let clock_low_event = MtuEvent {
+                    clock_cycle: clock_cycle_count,
+                    event_type: MtuEventType::ClockLow,
+                    time_delta_micros: time_delta.as_micros(),
+                };
+                let _ = led_sender.try_send(clock_low_event);
+            }
+
             Timer::after(half_cycle).await;
 
             let data_val = data_pin.is_high();
@@ -719,9 +729,6 @@ pub async fn run_mtu_led_logging_task(
                     event.time_delta_micros,
                     bit_value
                 );
-
-                // Clock LED follows clock state (no delays)
-                clock_led.set_low();  // Clock is low during this phase
 
                 // Data LED reflects the received bit value (no delays)
                 if bit_value == 1 {
